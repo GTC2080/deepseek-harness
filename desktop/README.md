@@ -38,7 +38,7 @@ Both commands rebuild the application and sidecar; they are release-oriented com
 
 The Tauri window opens a local startup page, launches the packaged `dsh web` sidecar on `127.0.0.1` with an operating-system-selected port, validates the exact loopback readiness URL, and then navigates the system WebView to it. The startup page has no Tauri JavaScript capability or native command surface.
 
-On macOS, the loopback port changes between launches. The desktop client therefore restores the last selected Session before normal Web startup and mirrors later selection changes through the application WebView's host-scoped storage. The first migration with no durable desktop selection opens the most recently updated nonblank Session instead of creating a startup-only blank draft. Session Log downloads still use the WebView download manager; the native shell reports completion and the actual saved filename to the existing Web dialog.
+On macOS and Windows, the loopback port changes between launches. The desktop client therefore restores the last selected Session before normal Web startup and mirrors later selection changes through the application WebView's host-scoped storage. The first migration with no durable desktop selection opens the most recently updated nonblank Session instead of creating a startup-only blank draft. Session Log downloads still use the WebView download manager; the native shell reports completion and the actual saved filename to the existing Web dialog.
 
 Desktop state is stored in the operating system application-data directory under the `ai.deepseek.harness` identifier. Closing the main window or quitting the application terminates the sidecar before the desktop process exits.
 

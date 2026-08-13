@@ -7,9 +7,10 @@ const COOKIE_MAX_AGE_SECONDS = 60 * 60 * 24 * 365
 
 type SelectionRecord = Record<string, unknown>
 
-function isMacDesktop(): boolean {
-  return (globalThis as { __DSH_DESKTOP_PLATFORM__?: unknown })
-    .__DSH_DESKTOP_PLATFORM__ === 'macos'
+function isDesktop(): boolean {
+  const platform = (globalThis as { __DSH_DESKTOP_PLATFORM__?: unknown })
+    .__DSH_DESKTOP_PLATFORM__
+  return platform === 'macos' || platform === 'windows'
 }
 
 function isRecord(value: unknown): value is SelectionRecord {
@@ -38,7 +39,7 @@ function expireSelectionCookie(): void {
 }
 
 function readSelectionCookie(): string | undefined {
-  if (!isMacDesktop() || typeof document === 'undefined') return undefined
+  if (!isDesktop() || typeof document === 'undefined') return undefined
   try {
     const prefix = `${SELECTION_COOKIE_NAME}=`
     const encoded = document.cookie
@@ -57,7 +58,7 @@ function readSelectionCookie(): string | undefined {
 }
 
 function writeSelectionCookie(raw: string): void {
-  if (!isMacDesktop() || typeof document === 'undefined' || !isValidSelection(raw)) return
+  if (!isDesktop() || typeof document === 'undefined' || !isValidSelection(raw)) return
   try {
     document.cookie = `${SELECTION_COOKIE_NAME}=${encodeURIComponent(raw)}; Max-Age=${COOKIE_MAX_AGE_SECONDS}; Path=/; SameSite=Strict`
   } catch (error) {
@@ -66,12 +67,12 @@ function writeSelectionCookie(raw: string): void {
 }
 
 /**
- * Seed the current random-port origin from the macOS WebView's host-scoped
+ * Seed the current random-port origin from the desktop WebView's host-scoped
  * cookie. An existing same-origin localStorage value is migrated once when
  * the durable cookie does not exist yet.
  */
-export function restoreMacDesktopSessionSelection(): void {
-  if (!isMacDesktop() || typeof localStorage === 'undefined') return
+export function restoreDesktopSessionSelection(): void {
+  if (!isDesktop() || typeof localStorage === 'undefined') return
   try {
     const durable = readSelectionCookie()
     if (durable !== undefined) {
@@ -95,19 +96,19 @@ export function restoreMacDesktopSessionSelection(): void {
  * @param selection - current Session selection store.
  * @returns disposer that stops mirroring later selection changes.
  */
-export function mirrorMacDesktopSessionSelection(
+export function mirrorDesktopSessionSelection(
   selection: ObservableSnapshot<unknown>,
 ): () => void {
-  if (!isMacDesktop()) return () => {}
+  if (!isDesktop()) return () => {}
   return selection.subscribe(() => {
     writeSelectionCookie(JSON.stringify(selection.getSnapshot()))
   })
 }
 
 /**
- * Check whether the first macOS desktop migration still needs a real Session fallback.
+ * Check whether the first desktop migration still needs a real Session fallback.
  * @returns true only when no durable desktop selection exists.
  */
-export function needsMacDesktopSessionSelectionFallback(): boolean {
-  return isMacDesktop() && readSelectionCookie() === undefined
+export function needsDesktopSessionSelectionFallback(): boolean {
+  return isDesktop() && readSelectionCookie() === undefined
 }

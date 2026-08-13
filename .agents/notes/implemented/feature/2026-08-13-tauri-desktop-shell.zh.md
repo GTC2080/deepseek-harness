@@ -22,7 +22,7 @@ Node 后端也不能继续作为外部前置条件。实测生产部署在尚未
 
 桌面壳先打开本地静态加载页，创建操作系统应用数据目录，再以该目录作为 `DSH_HOME` 和工作目录启动 `dsh web --host 127.0.0.1 --port 0`。它只接受精确的就绪前缀，以及紧随其后的无凭据 `http://127.0.0.1:<非零端口>/` origin，然后才让 WebView 导航。45 秒超时、进程过早退出、畸形就绪输出和导航失败都会作为可见启动错误保留下来。关闭主窗口或正常请求退出应用时，会先停止受管子进程，再结束桌面进程。
 
-在 macOS 上，由 Rust 创建配置好的 WebView，以便在首次导航前安装两类范围严格的原生到 Web 信号。平台标记让客户端在随机端口的 `localStorage` origin 与应用 WebView 的主机级 cookie 之间同步经校验、具有大小限制的当前 Session selection。首次迁移没有持久 selection 时，启动流程会从最近活跃 Workspace 中选择最近更新、未归档的非空白 Session，而不是创建一个临时空白 Session。下载标记则让现有 Session Log 控制器等待 WebView 下载完成并显示实际保存文件名；ZIP 流与目标位置仍由既有 Web 下载路径负责。
+在 macOS 与 Windows 上，由 Rust 创建配置好的 WebView，以便在首次导航前安装两类范围严格的原生到 Web 信号。平台标记让客户端在随机端口的 `localStorage` origin 与应用 WebView 的主机级 cookie 之间同步经校验、具有大小限制的当前 Session selection。首次迁移没有持久 selection 时，启动流程会从最近活跃 Workspace 中选择最近更新、未归档的非空白 Session，而不是创建一个临时空白 Session。下载标记则让现有 Session Log 控制器等待 WebView 下载完成并显示实际保存文件名；ZIP 流与目标位置仍由既有 Web 下载路径负责。
 
 封闭式运行时设置 `DSH_CLOSED_RUNTIME=1`。其根 Loader 与 bootstrap Include 从可执行文件的安装锚点解析随附 bare 插件，不会从可写 profile 目录解析。客户端模块 host 会先从 profile、再从 Loader 的安装锚点解析每个浏览器插件；因此，随附的浏览器 bundle 会始终留在 SEA 虚拟文件系统内，不依赖指向虚拟路径的操作系统链接。profile 的仅配置 HMR 实例仍监听用户 patch 文件，但其空模块根 watcher 会明确以真实 profile 目录为基础，而不是以可执行文件的虚拟 snapshot 路径为基础。
 
@@ -50,11 +50,11 @@ Agent 预设发现流程只读取目录名，再对每个候选项执行 `lstat`
 
 端到端 sidecar 构建后，pnpm 根工作区状态仍表明完整开发安装与 isolated linker。后续普通 `pnpm run` 也能直接执行，不会触发依赖修复安装。
 
-Rust 单元测试接受预期就绪 origin，并拒绝 HTTPS、`localhost`、缺失端口、非根路径和凭据。macOS 专属测试证明，原生下载桥只接受 loopback Session 导出，并会在事件分发前对文件名进行 JSON 转义。客户端回归测试覆盖无效或超大 selection cookie、跨端口恢复、首次迁移回退、普通浏览器隔离、原生下载完成、防重名文件名和原生下载失败。连续两次使用不同 loopback 端口启动开发版，都会恢复同一个真实 Session，不再显示仅在启动时出现的 New Session 行。
+Rust 单元测试接受预期就绪 origin，并拒绝 HTTPS、`localhost`、缺失端口、非根路径和凭据。桌面端测试证明，两种受支持的平台标记都会在导航前注入，且原生下载桥只接受 loopback Session 导出，并会在事件分发前对文件名进行 JSON 转义。客户端回归测试覆盖无效或超大 selection cookie、macOS 与 Windows 跨端口恢复、首次迁移回退、普通浏览器隔离、原生下载完成、防重名文件名和原生下载失败。连续两次使用不同 loopback 端口启动开发版，都会恢复同一个真实 Session，不再显示仅在启动时出现的 New Session 行。
 
 生产 macOS arm64 应用与 DMG 均成功构建，严格 deep 代码签名验证通过。通过 macOS LaunchServices 启动已打包应用会在 loopback 上启动内置 sidecar；关闭原生窗口或请求退出应用时，两个进程都会退出并释放端口。在本次构建快照中，应用 bundle 约为 235 MB，压缩 DMG 约为 67 MB；sidecar 约为 225 MB，占安装体积的主要部分。
 
-Windows 源码映射与 bundle 配置已经存在，但无法在 macOS 上完成可执行验证。发布 Windows 安装程序前仍必须进行 Windows 原生构建。
+Windows 源码映射、平台专用窗口配置与共享桌面信号已经存在，但无法在 macOS 上完成可执行验证。发布 Windows 安装程序前仍必须进行 Windows 原生构建。
 
 ## 考虑过的替代方案
 

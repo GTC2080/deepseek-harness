@@ -243,8 +243,8 @@ describe('current selection (migrated from ui-layout, arbitrated into the list s
     expect(second.svc.list.getSnapshot().current).toBe('s1')
   })
 
-  it('restores the macOS desktop selection after the loopback port changes', async () => {
-    vi.stubGlobal('__DSH_DESKTOP_PLATFORM__', 'macos')
+  it.each(['macos', 'windows'])('restores the %s desktop selection after the loopback port changes', async (platform) => {
+    vi.stubGlobal('__DSH_DESKTOP_PLATFORM__', platform)
     const cookies = stubCookieDocument()
     const firstOrigin = new Map<string, string>()
     vi.stubGlobal('localStorage', {
@@ -273,7 +273,7 @@ describe('current selection (migrated from ui-layout, arbitrated into the list s
   it.each([
     ['invalid', JSON.stringify({ sessionId: 7 })],
     ['oversized', JSON.stringify('x'.repeat(2_049))],
-  ])('rejects an %s macOS desktop selection cookie', (_case, raw) => {
+  ])('rejects an %s desktop selection cookie', (_case, raw) => {
     vi.stubGlobal('__DSH_DESKTOP_PLATFORM__', 'macos')
     const cookies = stubCookieDocument(
       `dsh.desktop.sessions.current=${encodeURIComponent(raw)}`,

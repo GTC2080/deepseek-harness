@@ -9,7 +9,7 @@ import type { SnapshotStore } from '../contract/store.ts'
 import { createSnapshotStore } from '../contract/store.ts'
 import type { SessionsPort, SessionsPortList } from '../contract/sessions-port.ts'
 import type { IWorkspaces } from '../contract/workspaces.ts'
-import { needsMacDesktopSessionSelectionFallback } from '../desktop-session-selection.ts'
+import { needsDesktopSessionSelectionFallback } from '../desktop-session-selection.ts'
 import { WorkspaceManager, type WorkspaceListPhase } from './manager.ts'
 
 /** Workspace list plus the two-baseline readiness and default-target projection. */
@@ -142,7 +142,7 @@ export class WorkspaceRuntime implements IWorkspaces {
         state = 'done'
         return
       }
-      if (needsMacDesktopSessionSelectionFallback()) {
+      if (needsDesktopSessionSelectionFallback()) {
         const recentSession = recentNonBlankSession(
           workspace.items.find(item => item.workspaceId === target),
           sessions.byId,

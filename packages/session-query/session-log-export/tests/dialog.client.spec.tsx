@@ -77,7 +77,7 @@ describe('SessionLogDownloadDialog', () => {
     await waitFor(() => { expect(b.dismiss).toHaveBeenCalledWith(SID) })
   })
 
-  it('shows the completed macOS filename and Downloads destination', async () => {
+  it('shows the completed desktop filename and Downloads destination', async () => {
     const b = bench()
     act(() => {
       b.controller.store.set({
