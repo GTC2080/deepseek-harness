@@ -45,8 +45,9 @@ const mounted = new WeakMap<object, MountedTree>()
 /**
  * The base URL bare specifiers resolve against, per pending mount, keyed by the
  * same config object. Recorded before the subtree is plugged, because `Include`
- * rewrites its own context's `baseUrl` to the composition's directory and the
- * pre-mount value is the only handle on where the harness itself lives.
+ * rewrites its own context's `baseUrl` to the composition's directory. A closed
+ * runtime records its installed package anchor on the Loader config; an ordinary
+ * source runtime falls back to the composition context's base.
  */
 const harnessBase = new WeakMap<object, string>()
 
@@ -338,11 +339,14 @@ export async function mountPreset(agentCtx: Context, preset: AgentPreset): Promi
     )
   }
   const config: Include.Config = { path: pathToFileURL(preset.path).href }
-  // Captured before the subtree exists: the standing scope context still
-  // carries the host composition's base, which is inside the installed
-  // harness and is therefore where a row's package name has to resolve from.
+  // Captured before the subtree exists. A closed runtime deliberately keeps
+  // the user profile and installed package tree separate, so its explicit
+  // Loader base must win over the standing scope's profile-directory base.
+  // Source runtimes do not set one and retain the existing context-relative
+  // resolution (including profile-installed plugins).
+  const hostBase = agentCtx.loader.config.baseUrl ?? agentCtx.baseUrl
   /* v8 ignore next -- the Loader sets `baseUrl` on the root before any scoped context derives from it */
-  if (agentCtx.baseUrl !== undefined) harnessBase.set(config, agentCtx.baseUrl)
+  if (hostBase !== undefined) harnessBase.set(config, hostBase)
   // Before the record this mount is about to add: standing mounts are one per
   // preset and live until whole-tree teardown, so pruning here only sweeps
   // records of torn-down runtimes (tests; an HMR reload of the roster).

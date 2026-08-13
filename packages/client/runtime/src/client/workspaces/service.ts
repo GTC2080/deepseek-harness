@@ -9,6 +9,7 @@ import type { SnapshotStore } from '../contract/store.ts'
 import { createSnapshotStore } from '../contract/store.ts'
 import type { SessionsPort, SessionsPortList } from '../contract/sessions-port.ts'
 import type { IWorkspaces } from '../contract/workspaces.ts'
+import { needsMacDesktopSessionSelectionFallback } from '../desktop-session-selection.ts'
 import { WorkspaceManager, type WorkspaceListPhase } from './manager.ts'
 
 /** Workspace list plus the two-baseline readiness and default-target projection. */
@@ -134,11 +135,24 @@ export class WorkspaceRuntime implements IWorkspaces {
       if (disposed || state !== 'waiting') return
       const workspace = this.list.getSnapshot()
       if (!workspace.baselinesReady) return
-      const current = this.sessions.list.getSnapshot().current
+      const sessions = this.sessions.list.getSnapshot()
+      const current = sessions.current
       const target = workspace.recentWorkspaceId
       if (current !== undefined || target === undefined) {
         state = 'done'
         return
+      }
+      if (needsMacDesktopSessionSelectionFallback()) {
+        const recentSession = recentNonBlankSession(
+          workspace.items.find(item => item.workspaceId === target),
+          sessions.byId,
+          workspace.archivedSessionIds,
+        )
+        if (recentSession !== undefined) {
+          this.sessions.open(recentSession)
+          state = 'done'
+          return
+        }
       }
       state = 'connecting'
       void this.connectWorkspace(target).then(
@@ -352,6 +366,26 @@ export class WorkspaceRuntime implements IWorkspaces {
       recentWorkspaceId: baselinesReady ? recentWorkspace(workspace.items, sessions.byId) : undefined,
     })
   }
+}
+
+/** First desktop migration has no cross-port selection yet; prefer real history over a blank draft. */
+function recentNonBlankSession(
+  workspace: WorkspaceView | undefined,
+  sessions: SessionsPortList['byId'],
+  archivedSessionIds: readonly SessionId[],
+): SessionId | undefined {
+  if (workspace === undefined) return undefined
+  let selected: SessionId | undefined
+  let selectedTime = Number.NEGATIVE_INFINITY
+  for (const sessionId of workspace.sessionIds) {
+    const session = sessions[sessionId]
+    if (session === undefined || session.blank || archivedSessionIds.includes(sessionId)) continue
+    if (selected === undefined || session.updatedAt > selectedTime) {
+      selected = sessionId
+      selectedTime = session.updatedAt
+    }
+  }
+  return selected
 }
 
 /** Stable tie-breaking follows Host Workspace order. */

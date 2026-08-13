@@ -22,7 +22,10 @@ function bench(
       () => selector(controller.store.getSnapshot()),
     )
   }
-  const t = (key: keyof typeof en): string => en[key]
+  const t = (key: keyof typeof en, params?: Record<string, unknown>): string => en[key].replace(
+    /\{([^}]+)\}/g,
+    (_match, name: string) => typeof params?.[name] === 'string' ? params[name] : `{${name}}`,
+  )
   const props = { sessionId: SID, useSessionLogDownload, dismiss, t } as unknown as SessionLogDownloadDialogProps
   const view = render(<SessionLogDownloadDialog {...props} />)
   return { controller, dismiss, view }
@@ -72,5 +75,24 @@ describe('SessionLogDownloadDialog', () => {
     if (close === undefined) throw new Error('Session export dialog has no footer action')
     fireEvent.click(close)
     await waitFor(() => { expect(b.dismiss).toHaveBeenCalledWith(SID) })
+  })
+
+  it('shows the completed macOS filename and Downloads destination', async () => {
+    const b = bench()
+    act(() => {
+      b.controller.store.set({
+        bySession: { [SID]: {
+          open: true,
+          status: 'success',
+          error: null,
+          filename: 'dsh-session-test (1).zip',
+        } },
+      })
+    })
+
+    const dialog = await b.view.findByRole('dialog', { name: 'Session download complete' })
+    expect(dialog.textContent).toContain(
+      'Saved to the system Downloads folder: dsh-session-test (1).zip',
+    )
   })
 })

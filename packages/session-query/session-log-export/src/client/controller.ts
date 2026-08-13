@@ -10,6 +10,7 @@ export interface SessionLogDownloadEntry {
   readonly open: boolean
   readonly status: SessionLogDownloadStatus
   readonly error: string | null
+  readonly filename?: string
 }
 
 /** Download states keyed by the Session whose Header owns the dialog. */
@@ -18,9 +19,18 @@ export interface SessionLogDownloadState {
 }
 
 type Fetch = (input: string | URL, init?: RequestInit) => Promise<Response>
-type Save = (url: string, filename: string) => void
+type Save = (url: string, filename: string, signal?: AbortSignal) => void | string | Promise<void | string>
 
 const INITIAL: SessionLogDownloadState = { bySession: {} }
+const DESKTOP_DOWNLOAD_EVENT = 'dsh:desktop-download'
+const DESKTOP_DOWNLOAD_START_TIMEOUT_MS = 10_000
+
+interface DesktopDownloadEvent {
+  readonly url: string
+  readonly phase: 'requested' | 'finished'
+  readonly filename?: string
+  readonly success?: boolean
+}
 
 /**
  * Collapse an untrusted Session id into the filename convention owned by the host endpoint.
@@ -32,15 +42,72 @@ export function sessionLogZipFilename(sessionId: SessionId): string {
 }
 
 /**
- * Hand a Host download URL to the browser download manager.
+ * Hand a Host URL to the browser download manager or the macOS desktop completion bridge.
  * @param url - same-origin Host download URL.
  * @param filename - browser download filename.
+ * @param signal - optional lifecycle cancellation for the desktop completion bridge.
+ * @returns the actual desktop filename after native completion, or immediately in a browser.
  */
-export function downloadUrl(url: string, filename: string): void {
+export function downloadUrl(url: string, filename: string, signal?: AbortSignal): void | Promise<string> {
   const anchor = document.createElement('a')
   anchor.href = url
   anchor.download = filename
-  anchor.click()
+  const desktop = (globalThis as typeof globalThis & {
+    __DSH_DESKTOP_DOWNLOADS__?: unknown
+  }).__DSH_DESKTOP_DOWNLOADS__ === true
+  if (!desktop) {
+    anchor.click()
+    return
+  }
+  return new Promise<string>((resolve, reject) => {
+    let actualFilename = filename
+    const cleanup = (): void => {
+      clearTimeout(startTimer)
+      window.removeEventListener(DESKTOP_DOWNLOAD_EVENT, onDownload)
+      signal?.removeEventListener('abort', onAbort)
+    }
+    const settle = (action: () => void): void => {
+      cleanup()
+      action()
+    }
+    const onAbort = (): void => {
+      settle(() => { reject(new Error('Session download cancelled.')) })
+    }
+    const onDownload = (event: Event): void => {
+      if (!(event instanceof CustomEvent) || !isDesktopDownloadEvent(event.detail)) return
+      const detail = event.detail
+      if (detail.url !== anchor.href) return
+      if (detail.phase === 'requested') {
+        clearTimeout(startTimer)
+        if (detail.filename !== undefined) actualFilename = detail.filename
+        return
+      }
+      settle(() => {
+        if (detail.success === true) resolve(actualFilename)
+        else reject(new Error('Desktop Session download failed.'))
+      })
+    }
+    const startTimer = setTimeout(() => {
+      settle(() => { reject(new Error('Desktop Session download did not start.')) })
+    }, DESKTOP_DOWNLOAD_START_TIMEOUT_MS)
+    if (signal?.aborted === true) {
+      onAbort()
+      return
+    }
+    window.addEventListener(DESKTOP_DOWNLOAD_EVENT, onDownload)
+    signal?.addEventListener('abort', onAbort, { once: true })
+    anchor.click()
+  })
+}
+
+function isDesktopDownloadEvent(value: unknown): value is DesktopDownloadEvent {
+  if (value === null || typeof value !== 'object') return false
+  const detail = value as Partial<DesktopDownloadEvent>
+  if (typeof detail.url !== 'string') return false
+  if (detail.phase === 'requested') {
+    return detail.filename === undefined || typeof detail.filename === 'string'
+  }
+  return detail.phase === 'finished' && typeof detail.success === 'boolean'
 }
 
 /** Resolve the browser's Host base with the connection carrier's null-origin fallback. */
@@ -119,9 +186,12 @@ export class SessionLogDownloadController {
         const detail = await response.text().catch(() => '')
         throw new Error(`Export failed: HTTP ${response.status}${detail === '' ? '' : ` ${detail}`}`)
       }
-      this.save(url.toString(), sessionLogZipFilename(sessionId))
+      const filename = await this.save(url.toString(), sessionLogZipFilename(sessionId), signal)
       const open = this.store.getSnapshot().bySession[String(sessionId)]?.open ?? true
-      this.publish(sessionId, { open, status: 'success', error: null })
+      this.publish(sessionId, {
+        open, status: 'success', error: null,
+        ...(typeof filename === 'string' ? { filename } : {}),
+      })
     } catch (error: unknown) {
       if (signal.aborted) return
       const open = this.store.getSnapshot().bySession[String(sessionId)]?.open ?? true

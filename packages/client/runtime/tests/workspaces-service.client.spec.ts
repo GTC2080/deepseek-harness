@@ -549,6 +549,45 @@ describe('startInitialSelection', () => {
     stop()
   })
 
+  it('opens recent real history during the first macOS cross-port migration', async () => {
+    let cookie = ''
+    vi.stubGlobal('__DSH_DESKTOP_PLATFORM__', 'macos')
+    vi.stubGlobal('document', {
+      get cookie() { return cookie },
+      set cookie(value: string) {
+        cookie = value.includes('Max-Age=0') ? '' : (value.split(';', 1)[0] ?? '')
+      },
+    })
+    const storage = new Map<string, string>()
+    vi.stubGlobal('localStorage', {
+      getItem: (key: string) => storage.get(key) ?? null,
+      setItem: (key: string, value: string) => { storage.set(key, value) },
+      removeItem: (key: string) => { storage.delete(key) },
+    })
+    try {
+      const b = bench()
+      b.api.onWorkspaceList = () => Promise.resolve(ok({
+        items: [workspace('recent', [sid('s-real'), sid('s-blank')])] as never[],
+      }))
+      b.api.onList = () => Promise.resolve(ok({
+        items: [
+          { sessionId: sid('s-real'), updatedAt: 10, running: false, blank: false },
+          { sessionId: sid('s-blank'), updatedAt: 20, running: false, blank: true },
+        ] as never[],
+      }))
+      const stop = b.workspaces.startInitialSelection()
+      await b.workspaces.refresh()
+      await b.sessions.refresh()
+      await new Promise(resolve => setTimeout(resolve, 0))
+      expect(b.sessions.list.getSnapshot().current).toBe('s-real')
+      expect(b.api.callsOf('session.create')).toHaveLength(0)
+      expect(decodeURIComponent(cookie)).toContain('s-real')
+      stop()
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
   it('stays idle when a session is already current or no recent Workspace exists', async () => {
     const withCurrent = bench()
     withCurrent.api.onList = () => Promise.resolve(ok({

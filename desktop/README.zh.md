@@ -38,7 +38,9 @@ pnpm run desktop:dev
 
 Tauri 窗口先打开本地启动页，在 `127.0.0.1` 上使用操作系统分配的端口启动已打包的 `dsh web` sidecar，严格校验 loopback 就绪 URL，然后让系统 WebView 导航至该地址。启动页不具备任何 Tauri JavaScript capability 或原生命令接口。
 
-桌面状态存储在操作系统应用数据目录中，使用 `ai.deepseek.harness` 标识符。关闭主窗口会退出应用并终止 sidecar。
+在 macOS 上，loopback 端口会随每次启动变化。因此，桌面客户端会在 Web 常规启动前恢复上次选中的 Session，并通过应用 WebView 的主机级存储同步后续选择。首次迁移还没有持久桌面选择时，会打开最近更新的非空白 Session，而不会创建一个只在启动时出现的空白草稿。Session Log 下载仍由 WebView 下载管理器处理；原生壳会把完成状态和实际保存文件名反馈给现有 Web 弹窗。
+
+桌面状态存储在操作系统应用数据目录中，使用 `ai.deepseek.harness` 标识符。关闭主窗口或退出应用时，会先终止 sidecar，再结束桌面进程。
 
 封闭式可执行文件包含仓库随附的插件图。此桌面构建不支持额外安装仓库外 Node 插件；请先在仓库中加入并验证插件，再生成新的桌面包。
 

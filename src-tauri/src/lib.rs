@@ -10,6 +10,8 @@ use std::{
     time::Duration,
 };
 
+#[cfg(target_os = "macos")]
+use tauri::{webview::DownloadEvent, WebviewWindowBuilder};
 use tauri::{Manager, Url, WebviewWindow, WindowEvent};
 use tauri_plugin_shell::{
     process::{CommandChild, CommandEvent, TerminatedPayload},
@@ -21,6 +23,8 @@ const READY_PREFIX: &str = "dsh web: ";
 const STARTUP_TIMEOUT: Duration = Duration::from_secs(45);
 const MAX_DIAGNOSTIC_LINES: usize = 8;
 const MAX_DIAGNOSTIC_CHARS: usize = 500;
+#[cfg(target_os = "macos")]
+const DESKTOP_DOWNLOAD_EVENT: &str = "dsh:desktop-download";
 
 const PENDING: u8 = 0;
 const NAVIGATING: u8 = 1;
@@ -148,7 +152,78 @@ fn termination_message(payload: &TerminatedPayload, diagnostics: &VecDeque<Strin
     }
 }
 
+#[cfg(target_os = "macos")]
+fn is_session_export_download(url: &Url) -> bool {
+    url.scheme() == "http"
+        && url.host_str() == Some("127.0.0.1")
+        && url.port().is_some()
+        && url.path() == "/api/session.export"
+}
+
+#[cfg(target_os = "macos")]
+fn desktop_download_event_script(detail: serde_json::Value) -> String {
+    format!(
+        "window.dispatchEvent(new CustomEvent({event}, {{ detail: {detail} }}));",
+        event = serde_json::to_string(DESKTOP_DOWNLOAD_EVENT)
+            .expect("desktop download event name is serializable"),
+    )
+}
+
+#[cfg(target_os = "macos")]
+fn create_main_window(app: &tauri::App) -> Result<WebviewWindow, Box<dyn Error>> {
+    let config = app
+        .config()
+        .app
+        .windows
+        .iter()
+        .find(|config| config.label == MAIN_WINDOW)
+        .ok_or("the configured main window is missing")?;
+    let window = WebviewWindowBuilder::from_config(app.handle(), config)?
+        .initialization_script(
+            "window.__DSH_DESKTOP_PLATFORM__ = 'macos'; window.__DSH_DESKTOP_DOWNLOADS__ = true;",
+        )
+        .on_download(|webview, event| {
+            match event {
+                DownloadEvent::Requested { url, destination }
+                    if is_session_export_download(&url) =>
+                {
+                    let filename = destination
+                        .file_name()
+                        .and_then(|name| name.to_str())
+                        .unwrap_or("dsh-session.zip");
+                    let script = desktop_download_event_script(serde_json::json!({
+                        "url": url.as_str(),
+                        "phase": "requested",
+                        "filename": filename,
+                    }));
+                    if let Err(error) = webview.eval(script) {
+                        eprintln!("Could not report the desktop download start: {error}");
+                    }
+                }
+                DownloadEvent::Finished { url, success, .. }
+                    if is_session_export_download(&url) =>
+                {
+                    let script = desktop_download_event_script(serde_json::json!({
+                        "url": url.as_str(),
+                        "phase": "finished",
+                        "success": success,
+                    }));
+                    if let Err(error) = webview.eval(script) {
+                        eprintln!("Could not report the desktop download result: {error}");
+                    }
+                }
+                _ => {}
+            }
+            true
+        })
+        .build()?;
+    Ok(window)
+}
+
 fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
+    #[cfg(target_os = "macos")]
+    let window = create_main_window(app)?;
+    #[cfg(not(target_os = "macos"))]
     let window = app
         .get_webview_window(MAIN_WINDOW)
         .ok_or("the configured main window is missing")?;
@@ -198,6 +273,7 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
     };
 
     let state = Arc::new(BackendState::new(child));
+    app.manage(state.clone());
     let close_state = state.clone();
     let app_handle = app.handle().clone();
     window.on_window_event(move |event| {
@@ -292,16 +368,28 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let app = tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .setup(setup)
-        .run(tauri::generate_context!())
-        .expect("failed to run the DeepSeek Harness desktop application");
+        .build(tauri::generate_context!())
+        .expect("failed to build the DeepSeek Harness desktop application");
+    app.run(|app_handle, event| {
+        if matches!(
+            event,
+            tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit
+        ) {
+            if let Some(state) = app_handle.try_state::<Arc<BackendState>>() {
+                state.stop();
+            }
+        }
+    });
 }
 
 #[cfg(test)]
 mod tests {
     use super::parse_ready_line;
+    #[cfg(target_os = "macos")]
+    use super::{desktop_download_event_script, is_session_export_download};
 
     #[test]
     fn accepts_only_the_loopback_runtime_origin() {
@@ -327,5 +415,30 @@ mod tests {
         ] {
             assert!(parse_ready_line(line).is_err(), "accepted {line}");
         }
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn bridges_only_loopback_session_exports_without_interpolating_javascript() {
+        assert!(is_session_export_download(
+            &"http://127.0.0.1:43125/api/session.export?sessionId=test"
+                .parse()
+                .expect("valid URL")
+        ));
+        for raw in [
+            "https://127.0.0.1:43125/api/session.export?sessionId=test",
+            "http://localhost:43125/api/session.export?sessionId=test",
+            "http://127.0.0.1:43125/api/other",
+        ] {
+            assert!(!is_session_export_download(
+                &raw.parse().expect("valid URL")
+            ));
+        }
+
+        let script = desktop_download_event_script(serde_json::json!({
+            "filename": "archive\";window.injected=true;//.zip"
+        }));
+        assert!(script.contains("archive\\\";window.injected=true;//.zip"));
+        assert!(!script.contains("detail: {\"filename\":\"archive\";"));
     }
 }

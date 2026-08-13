@@ -30,6 +30,7 @@ describe('SessionLogDownloadController', () => {
     expect(save).toHaveBeenCalledWith(
       url.toString(),
       'dsh-session-session-export-controller.zip',
+      expect.any(AbortSignal),
     )
     expect(controller.store.getSnapshot().bySession[SID]).toEqual({
       open: true, status: 'success', error: null,
@@ -51,6 +52,27 @@ describe('SessionLogDownloadController', () => {
     expect(fetcher).toHaveBeenCalledOnce()
     expect(controller.store.getSnapshot().bySession[SID]?.open).toBe(false)
     controller.dismiss(SID)
+  })
+
+  it('waits for native desktop completion and publishes the actual filename', async () => {
+    const saved = Promise.withResolvers<string>()
+    const save = vi.fn(() => saved.promise)
+    const controller = new SessionLogDownloadController(
+      async () => new Response('zip', { status: 200 }), save,
+    )
+
+    const download = controller.download(SID)
+    await vi.waitFor(() => { expect(save).toHaveBeenCalledOnce() })
+    expect(controller.store.getSnapshot().bySession[SID]?.status).toBe('downloading')
+    saved.resolve('dsh-session-session-export-controller (1).zip')
+    await download
+
+    expect(controller.store.getSnapshot().bySession[SID]).toEqual({
+      open: true,
+      status: 'success',
+      error: null,
+      filename: 'dsh-session-session-export-controller (1).zip',
+    })
   })
 
   it('publishes HTTP and transport failures without leaking rejections', async () => {
@@ -137,10 +159,47 @@ describe('browser download helpers', () => {
     const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
 
     expect(sessionLogZipFilename('a/b' as SessionId)).toBe('dsh-session-a_b.zip')
-    downloadUrl('http://host/api/session.export?sessionId=a', 'archive.zip')
+    const result = downloadUrl('http://host/api/session.export?sessionId=a', 'archive.zip')
+    expect(result).toBeUndefined()
     expect(click).toHaveBeenCalledOnce()
     const anchor = click.mock.instances[0] as HTMLAnchorElement
     expect(anchor.href).toBe('http://host/api/session.export?sessionId=a')
     expect(anchor.download).toBe('archive.zip')
+  })
+
+  it('waits for the macOS download bridge and returns its collision-safe filename', async () => {
+    vi.stubGlobal('__DSH_DESKTOP_DOWNLOADS__', true)
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
+    const result = downloadUrl('http://host/api/session.export?sessionId=a', 'archive.zip')
+    if (!(result instanceof Promise)) throw new Error('desktop download did not return a completion promise')
+    expect(click).toHaveBeenCalledOnce()
+
+    window.dispatchEvent(new CustomEvent('dsh:desktop-download', { detail: {
+      url: 'http://host/api/session.export?sessionId=a',
+      phase: 'requested',
+      filename: 'archive (1).zip',
+    } }))
+    window.dispatchEvent(new CustomEvent('dsh:desktop-download', { detail: {
+      url: 'http://host/api/session.export?sessionId=a',
+      phase: 'finished',
+      success: true,
+    } }))
+
+    await expect(result).resolves.toBe('archive (1).zip')
+  })
+
+  it('reports a native desktop download failure', async () => {
+    vi.stubGlobal('__DSH_DESKTOP_DOWNLOADS__', true)
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
+    const result = downloadUrl('http://host/api/session.export?sessionId=a', 'archive.zip')
+    if (!(result instanceof Promise)) throw new Error('desktop download did not return a completion promise')
+
+    window.dispatchEvent(new CustomEvent('dsh:desktop-download', { detail: {
+      url: 'http://host/api/session.export?sessionId=a',
+      phase: 'finished',
+      success: false,
+    } }))
+
+    await expect(result).rejects.toThrow('Desktop Session download failed.')
   })
 })

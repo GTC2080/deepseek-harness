@@ -15,7 +15,7 @@ import {
 } from '@deepseek-ai/dsh-skill'
 
 const PROVIDER_NAME = 'dsh-badge'
-const SKILL_BODY_URL = new URL('../assets/dsh-badge.md', import.meta.url)
+const SKILL_BODY_PATH = fileURLToPath(new URL('../assets/dsh-badge.md', import.meta.url))
 const RESOURCE_BASE = {
   kind: 'directory',
   path: fileURLToPath(new URL('../assets/', import.meta.url)),
@@ -30,7 +30,7 @@ const CANDIDATE: SkillCandidate = {
   source: 'bundled',
   resourceBase: RESOURCE_BASE,
   rank: BUNDLED_SKILL_RANK,
-  locator: SKILL_BODY_URL,
+  locator: SKILL_BODY_PATH,
 }
 
 const provider: SkillProvider = {
@@ -44,7 +44,7 @@ const provider: SkillProvider = {
       provider: CANDIDATE.provider,
       source: CANDIDATE.source,
       resourceBase: RESOURCE_BASE,
-      content: await readFile(SKILL_BODY_URL, 'utf8'),
+      content: await readFile(SKILL_BODY_PATH, 'utf8'),
     }
   },
 }

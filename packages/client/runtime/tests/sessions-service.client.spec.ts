@@ -27,6 +27,17 @@ function bench(): Bench {
   return { ctx, api, svc }
 }
 
+function stubCookieDocument(initial = ''): { read: () => string } {
+  let cookie = initial
+  vi.stubGlobal('document', {
+    get cookie() { return cookie },
+    set cookie(value: string) {
+      cookie = value.includes('Max-Age=0') ? '' : (value.split(';', 1)[0] ?? '')
+    },
+  })
+  return { read: () => cookie }
+}
+
 /** Refresh the manager list from programmable rows and flush the microtask batch. */
 type FeedRow = {
   id: string
@@ -230,6 +241,72 @@ describe('current selection (migrated from ui-layout, arbitrated into the list s
     const second = bench()
     await feedList(second, [{ id: 's1' }])
     expect(second.svc.list.getSnapshot().current).toBe('s1')
+  })
+
+  it('restores the macOS desktop selection after the loopback port changes', async () => {
+    vi.stubGlobal('__DSH_DESKTOP_PLATFORM__', 'macos')
+    const cookies = stubCookieDocument()
+    const firstOrigin = new Map<string, string>()
+    vi.stubGlobal('localStorage', {
+      getItem: (key: string) => firstOrigin.get(key) ?? null,
+      setItem: (key: string, value: string) => { firstOrigin.set(key, value) },
+      removeItem: (key: string) => { firstOrigin.delete(key) },
+    })
+    const first = bench()
+    await feedList(first, [{ id: 's1' }])
+    first.svc.open(sid('s1'))
+    expect(decodeURIComponent(cookies.read())).toContain('s1')
+
+    // A new random port has empty localStorage but shares the WebView cookie jar.
+    const secondOrigin = new Map<string, string>()
+    vi.stubGlobal('localStorage', {
+      getItem: (key: string) => secondOrigin.get(key) ?? null,
+      setItem: (key: string, value: string) => { secondOrigin.set(key, value) },
+      removeItem: (key: string) => { secondOrigin.delete(key) },
+    })
+    const second = bench()
+    await feedList(second, [{ id: 's1' }])
+    expect(secondOrigin.get('dsh.sessions.current')).toContain('s1')
+    expect(second.svc.list.getSnapshot().current).toBe('s1')
+  })
+
+  it.each([
+    ['invalid', JSON.stringify({ sessionId: 7 })],
+    ['oversized', JSON.stringify('x'.repeat(2_049))],
+  ])('rejects an %s macOS desktop selection cookie', (_case, raw) => {
+    vi.stubGlobal('__DSH_DESKTOP_PLATFORM__', 'macos')
+    const cookies = stubCookieDocument(
+      `dsh.desktop.sessions.current=${encodeURIComponent(raw)}`,
+    )
+    const storage = new Map<string, string>()
+    vi.stubGlobal('localStorage', {
+      getItem: (key: string) => storage.get(key) ?? null,
+      setItem: (key: string, value: string) => { storage.set(key, value) },
+      removeItem: (key: string) => { storage.delete(key) },
+    })
+
+    bench()
+
+    expect(cookies.read()).toBe('')
+    expect(storage.has('dsh.sessions.current')).toBe(false)
+  })
+
+  it('leaves ordinary browser selection storage isolated from the desktop cookie', async () => {
+    const cookie = `dsh.desktop.sessions.current=${encodeURIComponent(JSON.stringify({ sessionId: 's1' }))}`
+    const cookies = stubCookieDocument(cookie)
+    const storage = new Map<string, string>()
+    vi.stubGlobal('localStorage', {
+      getItem: (key: string) => storage.get(key) ?? null,
+      setItem: (key: string, value: string) => { storage.set(key, value) },
+      removeItem: (key: string) => { storage.delete(key) },
+    })
+
+    const browser = bench()
+    await feedList(browser, [{ id: 's1' }])
+
+    expect(browser.svc.list.getSnapshot().current).toBeUndefined()
+    expect(storage.has('dsh.sessions.current')).toBe(false)
+    expect(cookies.read()).toBe(cookie)
   })
 })
 

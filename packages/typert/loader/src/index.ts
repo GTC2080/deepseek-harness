@@ -282,15 +282,28 @@ function requireStrictCodec(pkgName: string, value: unknown, subject: string): v
  * @param config - explicit package artifacts in addition to Loader entries.
  */
 export async function apply(ctx: Context, config: Config): Promise<void> {
-  // Resolution anchor: the config tree's baseUrl (the cordis.yml directory,
-  // whose package declares every composed plugin as a dependency). This
-  // package's own URL would miss sibling packages under pnpm's isolated
-  // node_modules.
-  if (ctx.baseUrl === undefined) {
-    throw new Error('typert-loader: ctx.baseUrl is unset — the loader needs the config-tree anchor to resolve plugin packages')
+  // Preserve profile-installed package precedence, then fall back to the
+  // Loader's installed-runtime anchor. Closed executables keep those trees
+  // separate, while ordinary source installs normally resolve on the first.
+  const anchors = [ctx.baseUrl, ctx.loader.config.baseUrl]
+    .filter((anchor): anchor is string => anchor !== undefined)
+  const resolvers = [...new Set(anchors)].map(anchor => createRequire(anchor).resolve)
+  if (resolvers.length === 0) {
+    throw new Error('typert-loader: no resolution anchor is available for plugin packages')
   }
-  const require = createRequire(ctx.baseUrl)
   const configured = new Set((config as ResolvedConfig).packages)
+  const resolvePackageJson = (pkgName: string): string => {
+    const request = `${pkgName}/package.json`
+    let resolutionError = new Error(`cannot resolve ${request}`)
+    for (const resolve of resolvers) {
+      try {
+        return resolve(request)
+      } catch (error) {
+        resolutionError = toError(error)
+      }
+    }
+    throw resolutionError
+  }
 
   // Registered contributions by entry name; the disposer withdraws the entry's registration.
   const registered = new Map<string, () => Promise<void>>()
@@ -317,11 +330,11 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     if (cached !== undefined) return cached
     let pkgPath: string
     try {
-      pkgPath = require.resolve(`${pkgName}/package.json`)
+      pkgPath = resolvePackageJson(pkgName)
     } catch (cause) {
       if (configured.has(pkgName)) {
         throw new Error(
-          `typert-loader: configured package "${pkgName}" cannot be resolved from the config tree — add it to the composition package dependencies or remove it from packages`,
+          `typert-loader: configured package "${pkgName}" cannot be resolved from the config tree or installed runtime — add it to the composition package dependencies or remove it from packages`,
           { cause },
         )
       }

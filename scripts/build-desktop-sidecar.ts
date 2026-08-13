@@ -44,6 +44,7 @@ const ASSET_GLOBS = [
   'node_modules/**/*.wasm',
   'node_modules/**/*.yml',
   'node_modules/**/*.yaml',
+  'node_modules/@deepseek-ai/dsh-skill-badge/assets/**/*',
   'node_modules/@deepseek-ai/dsh-web-frontend/dist/**/*',
 ]
 
@@ -147,7 +148,13 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
-async function run(label: string, command: string, args: string[], dryRun: boolean): Promise<void> {
+async function run(
+  label: string,
+  command: string,
+  args: string[],
+  dryRun: boolean,
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<void> {
   const printable = formatCommand(command, args)
   if (dryRun) {
     console.log(`build-desktop-sidecar: [dry-run] ${printable}`)
@@ -158,7 +165,7 @@ async function run(label: string, command: string, args: string[], dryRun: boole
     const child = spawn(command, args, {
       cwd: root,
       stdio: 'inherit',
-      env: { ...process.env, CI: 'true' },
+      env: { ...env, CI: 'true' },
     })
     child.once('error', (error) => {
       reject(new Error(`${label} failed to spawn: ${error.message} (${printable})`))
@@ -295,6 +302,12 @@ async function injectPkgConfig(cli: Cli): Promise<void> {
 async function buildSidecar(cli: Cli, target: HostTarget): Promise<string[]> {
   const executable = join(BINARIES, `dsh-backend-${target.rustTriple}${target.executableSuffix}`)
   if (!cli.dryRun) await mkdir(BINARIES, { recursive: true })
+  // @yao-pkg records its temporary SEA entry filename in the executable.
+  // macOS's default per-user temp path carries a stable local identifier, so
+  // use the platform's neutral temporary root for distributable binaries.
+  const pkgEnv = process.platform === 'darwin'
+    ? { ...process.env, TMPDIR: '/tmp' }
+    : process.env
   await run('pkg', pnpmBin(), [
     'dlx',
     '--allow-build=esbuild',
@@ -305,7 +318,7 @@ async function buildSidecar(cli: Cli, target: HostTarget): Promise<string[]> {
     target.pkgTarget,
     '--output',
     executable,
-  ], cli.dryRun)
+  ], cli.dryRun, pkgEnv)
   const products = [executable]
   if (process.platform === 'darwin') {
     const source = join(STAGING, 'node_modules/node-pty/prebuilds', target.nodePtyPlatform, 'spawn-helper')

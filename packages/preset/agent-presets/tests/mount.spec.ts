@@ -38,10 +38,13 @@ const ROOTS = [
  * @param roster - roster config, defaulting to the fixture roots.
  * @returns the booted context.
  */
-async function harness(roster: Config = { default: 'standard', roots: ROOTS, includeUserRoot: false }): Promise<Context> {
+async function harness(
+  roster: Config = { default: 'standard', roots: ROOTS, includeUserRoot: false },
+  loaderBaseUrl?: string,
+): Promise<Context> {
   const ctx = new Context()
   ctx.baseUrl = pathToFileURL(FIXTURES).href + '/'
-  await ctx.plugin(Loader)
+  await ctx.plugin(Loader, loaderBaseUrl === undefined ? {} : { baseUrl: loaderBaseUrl })
   ctx.loader.builtins.include = Include
   await ctx.plugin(LlmRuntime)
   await ctx.plugin(SessionStore)
@@ -85,6 +88,36 @@ beforeEach(async () => {
 })
 
 describe('composing an agent from a preset', () => {
+  it('resolves a closed runtime preset package from the Loader installation base', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-preset-closed-runtime-'))
+    const packageDir = join(root, 'host', 'node_modules', 'fixture-preset-installed')
+    const presetDir = join(root, 'profile', 'standard')
+    await mkdir(packageDir, { recursive: true })
+    await mkdir(presetDir, { recursive: true })
+    await writeFile(
+      join(packageDir, 'package.json'),
+      JSON.stringify({ name: 'fixture-preset-installed', type: 'module', exports: './index.js' }),
+    )
+    await writeFile(join(packageDir, 'index.js'), 'export function apply() {}\n')
+    await writeFile(
+      join(presetDir, COMPOSITION_FILE),
+      '- id: installed\n  name: fixture-preset-installed\n',
+    )
+    const installBase = pathToFileURL(join(root, 'host', 'entry.mjs')).href
+    const scoped = await harness({
+      default: 'standard',
+      roots: [{ path: join(root, 'profile'), trust: 'system' }],
+      includeUserRoot: false,
+    }, installBase)
+
+    try {
+      await agentOn(scoped, 'sess-installed-package')
+    } finally {
+      await scoped.fiber.dispose()
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
   it('hands an absolute plugin path to Node as a file URL', async () => {
     const root = await mkdtemp(join(tmpdir(), 'dsh-preset-absolute-plugin-'))
     const presetDir = join(root, 'absolute')

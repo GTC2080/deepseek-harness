@@ -92,13 +92,13 @@ function invocationTypertSource(pkgName: string): string {
   ].join('\n')
 }
 
-/** Boot a real Loader over a fixture root; plugin modules resolve from its node_modules. */
-async function boot(): Promise<Context> {
+/** Boot a real Loader over a fixture root; plugin modules resolve from the selected installation anchor. */
+async function boot(options: { configRoot?: string; loaderBaseUrl?: string } = {}): Promise<Context> {
   context = new Context()
-  context.baseUrl = pathToFileURL(join(root as string, 'cordis.yml')).href
+  context.baseUrl = pathToFileURL(join(options.configRoot ?? root as string, 'cordis.yml')).href
   await context.plugin(TypertRegistry)
-  await context.plugin(Loader)
-  const fixtureRequire = createRequire(context.baseUrl)
+  await context.plugin(Loader, options.loaderBaseUrl === undefined ? {} : { baseUrl: options.loaderBaseUrl })
+  const fixtureRequire = createRequire(options.loaderBaseUrl ?? context.baseUrl)
   context.loader.internal = {
     version: 'v2',
     async import(specifier: string) {
@@ -128,6 +128,27 @@ function mountTypertLoader(ctx: Context, config: typertLoader.Config = {}): Retu
 const LOADER_TEST_TIMEOUT = { timeout: 60_000 }
 
 describe('typert loader', () => {
+  it('falls back to the Loader installation base when the profile tree is separate', LOADER_TEST_TIMEOUT, async () => {
+    root = await mkdtemp(join(tmpdir(), 'dsh-typert-loader-closed-runtime-'))
+    const profileRoot = join(root, 'profile')
+    const installRoot = join(root, 'installed')
+    await mkdir(profileRoot, { recursive: true })
+    await linkZod(installRoot)
+    await writePackage(installRoot, '@fixture/installed', {
+      typertSource: typertSource('@fixture/installed', 'Installed'),
+    })
+    const ctx = await boot({
+      configRoot: profileRoot,
+      loaderBaseUrl: pathToFileURL(join(installRoot, 'entry.mjs')).href,
+    })
+
+    await ctx.loader.create({ name: '@fixture/installed' })
+    await ctx.loader.await()
+    await mountTypertLoader(ctx)
+
+    expect(ctx.typert.get('@fixture/installed#Installed')).toBeDefined()
+  })
+
   it('registers an explicit package without a Loader entry and withdraws it with the loader', LOADER_TEST_TIMEOUT, async () => {
     root = await mkdtemp(join(tmpdir(), 'dsh-typert-loader-'))
     await linkZod(root)
@@ -377,12 +398,12 @@ describe('typert loader', () => {
     expect(ctx.typert.getPackage('virtual-plugin')).toBeUndefined()
   })
 
-  it('requires a config-tree resolution anchor', LOADER_TEST_TIMEOUT, async () => {
+  it('requires at least one package resolution anchor', LOADER_TEST_TIMEOUT, async () => {
     context = new Context()
     await context.plugin(TypertRegistry)
     await context.plugin(Loader)
 
-    await expect(mountTypertLoader(context)).rejects.toThrow('ctx.baseUrl is unset')
+    await expect(mountTypertLoader(context)).rejects.toThrow('no resolution anchor')
   })
 
   it('contains steady-state registration failures and normalizes non-Error throws', LOADER_TEST_TIMEOUT, async () => {
