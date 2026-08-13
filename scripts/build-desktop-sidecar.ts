@@ -11,6 +11,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join, resolve, sep } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
 import { parseArgs } from 'node:util'
+import { pnpmInvocation } from './pnpm-invocation.ts'
 
 const root = resolve(import.meta.dirname, '..')
 const STAGING = resolve(root, '.artifacts/desktop-sidecar/node')
@@ -127,10 +128,6 @@ function resolveHostTarget(): HostTarget {
   throw new Error(`unsupported host platform ${process.platform}; desktop builds require macOS or Windows.`)
 }
 
-function pnpmBin(): string {
-  return process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm'
-}
-
 function formatCommand(command: string, args: string[]): string {
   return [command, ...args].map(part => (part.includes(' ') ? JSON.stringify(part) : part)).join(' ')
 }
@@ -150,19 +147,19 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 async function run(
   label: string,
-  command: string,
   args: string[],
   dryRun: boolean,
   env: NodeJS.ProcessEnv = process.env,
 ): Promise<void> {
-  const printable = formatCommand(command, args)
+  const printable = formatCommand('pnpm', args)
   if (dryRun) {
     console.log(`build-desktop-sidecar: [dry-run] ${printable}`)
     return
   }
+  const invocation = pnpmInvocation(args)
   console.log(`build-desktop-sidecar: ${label}: ${printable}`)
   await new Promise<void>((resolvePromise, reject) => {
-    const child = spawn(command, args, {
+    const child = spawn(invocation.command, invocation.args, {
       cwd: root,
       stdio: 'inherit',
       env: { ...env, CI: 'true' },
@@ -219,7 +216,7 @@ async function deploy(cli: Cli): Promise<void> {
     ? await readFile(WORKSPACE_STATE)
     : undefined
   try {
-    await run('deploy', pnpmBin(), [
+    await run('deploy', [
       '--filter',
       DEPLOY_PACKAGE,
       'deploy',
@@ -308,7 +305,7 @@ async function buildSidecar(cli: Cli, target: HostTarget): Promise<string[]> {
   const pkgEnv = process.platform === 'darwin'
     ? { ...process.env, TMPDIR: '/tmp' }
     : process.env
-  await run('pkg', pnpmBin(), [
+  await run('pkg', [
     'dlx',
     '--allow-build=esbuild',
     PKG_SPEC,
@@ -468,7 +465,7 @@ async function main(): Promise<void> {
   const cli = parseCli(process.argv.slice(2))
   const target = resolveHostTarget()
   console.log(`build-desktop-sidecar: native target ${target.rustTriple} (${target.pkgTarget})`)
-  if (!cli.skipBuild) await run('build', pnpmBin(), ['run', 'build'], cli.dryRun)
+  if (!cli.skipBuild) await run('build', ['run', 'build'], cli.dryRun)
   await deploy(cli)
   await injectPkgConfig(cli)
   const products = await buildSidecar(cli, target)
