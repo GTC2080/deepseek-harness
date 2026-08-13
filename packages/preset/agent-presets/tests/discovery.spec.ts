@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, writeFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -7,6 +7,7 @@ import { COMPOSITION_FILE, discoverPresets, scanRoot } from '@deepseek-ai/dsh-ag
 
 const fsHarness = vi.hoisted(() => ({
   nextReadError: undefined as NodeJS.ErrnoException | undefined,
+  methodlessDirents: false,
 }))
 
 vi.mock('node:fs/promises', async (importOriginal) => {
@@ -21,6 +22,13 @@ vi.mock('node:fs/promises', async (importOriginal) => {
       }
       return (actual.readFile as (path: unknown, ...args: never[]) => Promise<unknown>)(path, ...rest)
     }) as typeof actual.readFile,
+    readdir: (async (path: unknown, options?: unknown) => {
+      const entries = await (actual.readdir as (path: unknown, options?: unknown) => Promise<unknown[]>)(path, options)
+      if (!fsHarness.methodlessDirents
+        || typeof options !== 'object' || options === null
+        || (options as { withFileTypes?: unknown }).withFileTypes !== true) return entries
+      return entries.map(entry => ({ name: (entry as { name: string }).name }))
+    }) as typeof actual.readdir,
   }
 })
 
@@ -30,6 +38,7 @@ const USER = { path: join(FIXTURES, 'user'), trust: 'user' as const }
 
 beforeEach(() => {
   fsHarness.nextReadError = undefined
+  fsHarness.methodlessDirents = false
 })
 
 describe('display order', () => {
@@ -78,6 +87,23 @@ describe('preset discovery', () => {
       trust: 'system',
       path: join(SYSTEM.path, 'minimal', COMPOSITION_FILE),
     })
+  })
+
+  it('discovers presets when a virtual filesystem cannot provide Dirent methods', async () => {
+    fsHarness.methodlessDirents = true
+
+    const found = await scanRoot(SYSTEM)
+
+    expect(found.map(preset => preset.id)).toEqual(['minimal', 'standard'])
+  })
+
+  it('does not follow a symlink that points to a preset directory', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-presets-link-'))
+    await symlink(join(SYSTEM.path, 'minimal'), join(root, 'linked'), process.platform === 'win32' ? 'junction' : 'dir')
+
+    const found = await scanRoot({ path: root, trust: 'user' })
+
+    expect(found).toEqual([])
   })
 
   it('reports a directory with no composition as a broken preset slot', async () => {

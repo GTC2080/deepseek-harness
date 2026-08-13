@@ -14,7 +14,7 @@
  * @module @deepseek-ai/dsh-agent-presets/discovery
  */
 
-import { readdir, readFile, stat } from 'node:fs/promises'
+import { lstat, readdir, readFile, stat } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { load } from 'js-yaml'
 import { entryListSchema } from '@deepseek-ai/cordis-plugin-include'
@@ -122,6 +122,23 @@ async function isFile(path: string): Promise<boolean> {
 }
 
 /**
+ * Whether `path` names an existing directory.
+ * @param path - absolute path to test.
+ * @returns true when the path resolves to a directory.
+ */
+async function isDirectory(path: string): Promise<boolean> {
+  try {
+    // Preserve readdir({ withFileTypes: true }) semantics: a symlink to a
+    // directory is not itself a directory entry owned by this preset root.
+    return (await lstat(path)).isDirectory()
+  } catch {
+    // A child can disappear between the root read and this lstat. It no longer
+    // occupies a preset id, so discovery skips it.
+    return false
+  }
+}
+
+/**
  * Scan one root for preset directories.
  *
  * An absent root yields no presets rather than throwing: the user root does
@@ -140,15 +157,18 @@ export async function scanRoot(root: PresetRoot): Promise<AgentPreset[]> {
   const dir = resolve(expandHomePath(root.path))
   let children
   try {
-    children = await readdir(dir, { withFileTypes: true })
+    // Name-only reads also work in virtual filesystems whose readdir shim
+    // accepts withFileTypes but returns entries without Node Dirent methods.
+    children = await readdir(dir)
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return []
     throw new Error(`agent-presets: cannot read preset root ${dir}: ${String(error)}`, { cause: error })
   }
   const found: AgentPreset[] = []
   for (const child of children) {
-    if (!child.isDirectory() || !PRESET_ID.test(child.name)) continue
-    const directory = join(dir, child.name)
+    if (!PRESET_ID.test(child)) continue
+    const directory = join(dir, child)
+    if (!await isDirectory(directory)) continue
     const path = join(directory, COMPOSITION_FILE)
     const broken = await isFile(path)
       ? await compositionProblem(path)
@@ -157,7 +177,7 @@ export async function scanRoot(root: PresetRoot): Promise<AgentPreset[]> {
     // still mounts, it just shows its id.
     const metadata = await readPresetMetadata(directory)
     found.push({
-      id: child.name, trust: root.trust, path, ...metadata,
+      id: child, trust: root.trust, path, ...metadata,
       ...broken === undefined ? {} : { broken },
     })
   }

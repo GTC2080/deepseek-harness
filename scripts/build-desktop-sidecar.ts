@@ -143,6 +143,10 @@ function containedPackagePath(directory: string, dependency: string): string {
   return candidate
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
 async function run(label: string, command: string, args: string[], dryRun: boolean): Promise<void> {
   const printable = formatCommand(command, args)
   if (dryRun) {
@@ -317,6 +321,48 @@ async function buildSidecar(cli: Cli, target: HostTarget): Promise<string[]> {
   return products
 }
 
+/** Verify the roster read that backs every Agent-preset Web surface. */
+async function verifyAgentPresetRoster(baseUrl: URL): Promise<number> {
+  const rpcId = 'desktop-sidecar-agent-preset-list'
+  const response = await fetch(new URL('/api/agentPreset.list', baseUrl), {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ type: 'client-request', rpcId, method: 'agentPreset.list', payload: {} }),
+    signal: AbortSignal.timeout(30_000),
+  })
+  const body = await response.text()
+  if (!response.ok) {
+    throw new Error(`sidecar agentPreset.list returned HTTP ${String(response.status)}: ${body.slice(0, 1_000)}`)
+  }
+  let envelope: unknown
+  try {
+    envelope = JSON.parse(body)
+  } catch (error) {
+    throw new Error(`sidecar agentPreset.list returned invalid JSON: ${String(error)}`)
+  }
+  if (!isRecord(envelope) || envelope.type !== 'server-response'
+    || envelope.rpcId !== rpcId || !isRecord(envelope.result)) {
+    throw new Error('sidecar agentPreset.list returned an invalid response envelope')
+  }
+  const result = envelope.result
+  if (result.ok !== true) {
+    const error = isRecord(result.error) && typeof result.error.message === 'string'
+      ? `: ${result.error.message}`
+      : ''
+    throw new Error(`sidecar agentPreset.list failed${error}`)
+  }
+  const value = result.value
+  const presets = isRecord(value) && Array.isArray(value.presets) ? value.presets : undefined
+  if (presets === undefined || presets.length === 0) {
+    throw new Error('sidecar agentPreset.list returned no shipped presets')
+  }
+  if (!presets.some(preset => isRecord(preset)
+    && typeof preset.id === 'string' && preset.id !== '' && preset.isDefault === true)) {
+    throw new Error('sidecar agentPreset.list returned no valid default preset')
+  }
+  return presets.length
+}
+
 /** Verify that the compiled executable can discover and serve its shipped browser plugins. */
 async function verifySidecar(executable: string): Promise<void> {
   const runtimeRoot = await mkdtemp(join(tmpdir(), 'dsh-desktop-sidecar-'))
@@ -380,9 +426,9 @@ async function verifySidecar(executable: string): Promise<void> {
 
     for (const id of REQUIRED_CLIENT_PACKAGES) {
       const row = parsed.entries.find((candidate): candidate is { id: string; url: string } => (
-        typeof candidate === 'object' && candidate !== null
-        && (candidate as Record<string, unknown>).id === id
-        && typeof (candidate as Record<string, unknown>).url === 'string'
+        isRecord(candidate)
+        && candidate.id === id
+        && typeof candidate.url === 'string'
       ))
       if (row === undefined) throw new Error(`sidecar boot manifest is missing ${id}`)
       const bundleResponse = await fetch(new URL(row.url, baseUrl), { signal: AbortSignal.timeout(30_000) })
@@ -391,7 +437,11 @@ async function verifySidecar(executable: string): Promise<void> {
       }
       await bundleResponse.arrayBuffer()
     }
-    console.log(`build-desktop-sidecar: verified ${String(parsed.entries.length)} browser plugins from the closed runtime`)
+    const presetCount = await verifyAgentPresetRoster(baseUrl)
+    console.log(
+      `build-desktop-sidecar: verified ${String(parsed.entries.length)} browser plugins and `
+      + `${String(presetCount)} agent presets from the closed runtime`,
+    )
   } finally {
     if (child.exitCode === null && child.signalCode === null) child.kill('SIGTERM')
     await Promise.race([closed, delay(5_000, undefined, { ref: false })])

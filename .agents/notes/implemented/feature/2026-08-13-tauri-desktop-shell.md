@@ -24,6 +24,8 @@ The shell starts a local static loading page, creates the operating-system appli
 
 The closed runtime sets `DSH_CLOSED_RUNTIME=1`. Its root Loader and bootstrap Include resolve shipped bare plugins from the executable's installation anchor instead of the writable profile directory. The client-module host resolves each browser plugin from the profile first and then the Loader's installation anchor; shipped browser bundles therefore remain inside the SEA virtual filesystem instead of depending on operating-system links to virtual paths. The profile's config-only HMR instance still watches user patch files, but its empty module-root watcher is explicitly based at the real profile directory rather than the executable's virtual snapshot path.
 
+Agent-preset discovery uses name-only directory reads and applies `lstat` to each candidate, preserving the existing rule that directory symlinks are not preset rows. This keeps the same roster contract on a normal filesystem and the SEA virtual filesystem, whose directory entries do not carry Node `Dirent` methods. The shared Web settings row turns a failed roster read into an explicit error with a retry action; an empty failed selection is never labelled as still loading.
+
 ## Packaging boundary
 
 The build maps macOS and Windows x64/ARM64 hosts to their native Rust and SEA targets. It intentionally does not cross-compile or publish: each operating system builds and validates its own package. Generated sidecars and Rust targets remain ignored build output; the Tauri source, Cargo lock, icons, and loading page are versioned.
@@ -40,7 +42,9 @@ The application still exposes the existing Harness HTTP service to local process
 
 ## Verification
 
-A focused app-boot regression test proves that both bootstrap and dynamically created bare plugins resolve from the closed-runtime installation anchor instead of a same-named package in the writable profile. A client-module regression test proves profile-first resolution and the installed-runtime fallback independently. Every sidecar build starts the compiled executable from an isolated `DSH_HOME`, requires the injected boot graph to contain the client runtime and UI layout packages, downloads both advertised bundles successfully, and shuts the process down. This check fails when the executable serves an empty client graph even if its index still returns HTTP 200.
+A focused app-boot regression test proves that both bootstrap and dynamically created bare plugins resolve from the closed-runtime installation anchor instead of a same-named package in the writable profile. A client-module regression test proves profile-first resolution and the installed-runtime fallback independently. An agent-preset discovery regression test reproduces a virtual filesystem whose `readdir(..., { withFileTypes: true })` result lacks `Dirent` methods. A shared Web row regression test proves that a failed initial roster load exposes a retry control instead of an endless loading label.
+
+Every sidecar build starts the compiled executable from an isolated `DSH_HOME`, requires the injected boot graph to contain the client runtime and UI layout packages, downloads both advertised bundles successfully, calls `agentPreset.list`, requires a non-empty host-reported roster with one valid default, and shuts the process down. The probe follows the host-reported roster instead of hard-coding current preset ids, so new upstream presets do not require a desktop-only catalog change. This check fails when the executable serves an empty client graph or its packaged filesystem cannot discover shipped presets, even if the index still returns HTTP 200.
 
 After an end-to-end sidecar build, pnpm's root workspace state still reports the full development install and isolated linker. A subsequent ordinary `pnpm run` proceeds without a dependency repair install.
 

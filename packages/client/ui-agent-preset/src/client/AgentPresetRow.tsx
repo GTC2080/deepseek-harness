@@ -44,7 +44,7 @@ export function AgentPresetRow({ load, select, useAgentPreset, t }: AgentPresetR
   }, [load])
 
   useEffect(() => {
-    if (state.writable && state.status !== 'unavailable') return
+    if (state.writable && state.status === 'ready') return
     setOpen(false)
   }, [state.status, state.writable])
 
@@ -52,12 +52,15 @@ export function AgentPresetRow({ load, select, useAgentPreset, t }: AgentPresetR
   // every session shares the host composition — the row simply does not exist.
   if (state.status === 'unavailable') return null
   const busy = state.status === 'loading' || state.status === 'saving'
+  const failed = state.status === 'error'
   // Every preset surface applies the same display-copy rule. The id remains
   // addressing rather than a label, except where no display name exists.
   const chosen = state.options.find(option => option.id === state.currentValue)
   const chosenText = chosen === undefined ? undefined : presetDisplayText(chosen, t)
   const label = state.currentValue === '' ? t('loading') : (chosenText?.name ?? state.currentValue)
-  const description: string = state.error ?? t('description')
+  const description = failed
+    ? `${t('error')} ${state.error ?? ''}`.trimEnd()
+    : state.error ?? t('description')
 
   return (
     <div className={css.row}>
@@ -65,18 +68,26 @@ export function AgentPresetRow({ load, select, useAgentPreset, t }: AgentPresetR
         <div className={css.title}>{t('title')}</div>
         <div className={css.desc} role={state.error === null ? undefined : 'alert'}>{description}</div>
       </div>
-      <PresetMenu
-        options={state.options}
-        selectedId={state.currentValue}
-        label={label}
-        t={t}
-        buttonClassName={css.selector}
-        chevronClassName={css.chevron}
-        disabled={busy || !state.writable || state.options.length === 0}
-        open={open}
-        onOpenChange={setOpen}
-        onSelect={(id) => { void select(id) }}
-      />
+      {failed
+        ? (
+          <button type="button" className={css.selector} onClick={() => { void load() }}>
+            {t('retry')}
+          </button>
+        )
+        : (
+          <PresetMenu
+            options={state.options}
+            selectedId={state.currentValue}
+            label={label}
+            t={t}
+            buttonClassName={css.selector}
+            chevronClassName={css.chevron}
+            disabled={busy || !state.writable || state.options.length === 0}
+            open={open}
+            onOpenChange={setOpen}
+            onSelect={(id) => { void select(id) }}
+          />
+        )}
     </div>
   )
 }

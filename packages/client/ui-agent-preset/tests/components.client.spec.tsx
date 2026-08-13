@@ -171,6 +171,19 @@ describe('the General-settings row', () => {
     expect(screen.getByRole('alert').textContent).toBe('roster unavailable')
   })
 
+  it('replaces a failed initial load with an honest retry control', async () => {
+    const actions = renderRow({ status: 'error', error: 'roster unavailable', currentValue: '', options: [] })
+    await waitFor(() => { expect(actions.load).toHaveBeenCalledTimes(1) })
+    actions.load.mockClear()
+
+    const retry = screen.getByRole('button', { name: en.retry })
+    expect(retry.textContent).not.toContain(en.loading)
+    expect(screen.getByRole('alert').textContent).toBe(`${en.error} roster unavailable`)
+    fireEvent.click(retry)
+
+    expect(actions.load).toHaveBeenCalledTimes(1)
+  })
+
   it('renders nothing when the deployment composes no presets', () => {
     const { container } = render(<AgentPresetRow {...({
       load: vi.fn(() => Promise.resolve()),
