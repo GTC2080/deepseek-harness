@@ -11,19 +11,22 @@ import type { WebServer, WebRoute } from '@deepseek-ai/dsh-host-webserver'
 import { ClientModuleRegistry } from '../src/index.ts'
 
 let root: string | undefined
+let installedRoot: string | undefined
 
 afterEach(() => {
   if (root !== undefined) rmSync(root, { recursive: true, force: true })
+  if (installedRoot !== undefined) rmSync(installedRoot, { recursive: true, force: true })
   root = undefined
+  installedRoot = undefined
 })
 
 /** Create a resolvable package whose client export points at the returned path. */
 function writePackage(
   packageName: string,
   metadata: Record<string, unknown> = { dsh: { client: { platform: 'web' } } },
+  base = root ??= realpathSync(mkdtempSync(join(tmpdir(), 'dsh-client-modules-'))),
 ): string {
-  root ??= realpathSync(mkdtempSync(join(tmpdir(), 'dsh-client-modules-')))
-  const pkgRoot = join(root, 'node_modules', ...packageName.split('/'))
+  const pkgRoot = join(base, 'node_modules', ...packageName.split('/'))
   const clientPath = join(pkgRoot, 'lib', 'client.js')
   mkdirSync(pkgRoot, { recursive: true })
   writeFileSync(join(pkgRoot, 'package.json'), JSON.stringify({
@@ -38,10 +41,13 @@ function writePackage(
 }
 
 /** Construct the node-half service and capture its plugin-bundle route. */
-function constructWithRoute(packageNames: string[]): { service: ClientModuleRegistry; route: WebRoute } {
+function constructWithRoute(
+  packageNames: string[], installedBaseUrl?: string,
+): { service: ClientModuleRegistry; route: WebRoute } {
   const ctx = new Context()
   ctx.baseUrl = pathToFileURL(root!).href + '/'
   ctx.provide('loader', {
+    config: installedBaseUrl === undefined ? {} : { baseUrl: installedBaseUrl },
     *entries() {
       for (const packageName of packageNames) {
         yield { options: { name: packageName }, fiber: {}, disabled: false }
@@ -64,8 +70,8 @@ function constructWithRoute(packageNames: string[]): { service: ClientModuleRegi
 }
 
 /** Construct the node-half service over the enabled fixture entries. */
-function construct(packageNames: string[]): ClientModuleRegistry {
-  return constructWithRoute(packageNames).service
+function construct(packageNames: string[], installedBaseUrl?: string): ClientModuleRegistry {
+  return constructWithRoute(packageNames, installedBaseUrl).service
 }
 
 describe('client bundle activation', () => {
@@ -81,6 +87,25 @@ describe('client bundle activation', () => {
     mkdirSync(dirname(clientPath), { recursive: true })
     writeFileSync(clientPath, 'module.exports = {}\n')
     expect(construct([currentName]).graph().entries.map(entry => entry.id)).toEqual([currentName])
+  })
+
+  it('falls back to the Loader installed-runtime base when the profile cannot resolve a shipped package', () => {
+    const packageName = '@fixture/installed-client'
+    root = realpathSync(mkdtempSync(join(tmpdir(), 'dsh-client-profile-')))
+    installedRoot = realpathSync(mkdtempSync(join(tmpdir(), 'dsh-client-install-')))
+    const clientPath = writePackage(packageName, undefined, installedRoot)
+    mkdirSync(dirname(clientPath), { recursive: true })
+    writeFileSync(clientPath, 'module.exports = {}\n')
+
+    const installedBaseUrl = pathToFileURL(join(installedRoot, 'lib', 'bin.js')).href
+    expect(construct([packageName], installedBaseUrl).graph().entries.map(entry => entry.id)).toEqual([packageName])
+  })
+
+  it('ignores an entry unresolved from both module anchors', () => {
+    root = realpathSync(mkdtempSync(join(tmpdir(), 'dsh-client-profile-')))
+    installedRoot = realpathSync(mkdtempSync(join(tmpdir(), 'dsh-client-install-')))
+    const installedBaseUrl = pathToFileURL(join(installedRoot, 'lib', 'bin.js')).href
+    expect(construct(['@fixture/missing-client'], installedBaseUrl).graph().entries).toEqual([])
   })
 
   it('groups missing bundles under one source-build instruction with a package/path list', () => {

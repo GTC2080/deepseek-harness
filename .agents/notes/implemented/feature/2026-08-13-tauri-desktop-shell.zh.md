@@ -18,9 +18,11 @@ Node 后端也不能继续作为外部前置条件。实测生产部署在尚未
 
 `scripts/build-desktop-sidecar.ts` 会构建仓库、创建生产部署闭包、补回其中必需的 dependency 与 peer dependency 闭包、拒绝残留符号链接，并把该闭包编译为当前原生宿主的单个 Node SEA 可执行文件。Tauri 将其作为 `dsh-backend` external binary 打包。macOS 还会把 node-pty 的 `dsh-backend-spawn-helper` 放在旁边，因为 node-pty 根据 `process.execPath` 查找该可执行文件。
 
+生产部署步骤会在执行前保存、执行后恢复 pnpm 的根工作区状态。否则，pnpm 会把仅属于 staging 的 hoisted production 设置记到开发 checkout 上，并在下一个无交互命令中尝试重装 production 依赖。
+
 桌面壳先打开本地静态加载页，创建操作系统应用数据目录，再以该目录作为 `DSH_HOME` 和工作目录启动 `dsh web --host 127.0.0.1 --port 0`。它只接受精确的就绪前缀，以及紧随其后的无凭据 `http://127.0.0.1:<非零端口>/` origin，然后才让 WebView 导航。45 秒超时、进程过早退出、畸形就绪输出和导航失败都会作为可见启动错误保留下来。关闭主窗口会终止子进程并退出应用。
 
-封闭式运行时设置 `DSH_CLOSED_RUNTIME=1`。其根 Loader 与 bootstrap Include 从可执行文件的安装锚点解析随附 bare 插件，不会从可写 profile 目录解析。profile 的仅配置 HMR 实例仍监听用户 patch 文件，但其空模块根 watcher 会明确以真实 profile 目录为基础，而不是以可执行文件的虚拟 snapshot 路径为基础。
+封闭式运行时设置 `DSH_CLOSED_RUNTIME=1`。其根 Loader 与 bootstrap Include 从可执行文件的安装锚点解析随附 bare 插件，不会从可写 profile 目录解析。客户端模块 host 会先从 profile、再从 Loader 的安装锚点解析每个浏览器插件；因此，随附的浏览器 bundle 会始终留在 SEA 虚拟文件系统内，不依赖指向虚拟路径的操作系统链接。profile 的仅配置 HMR 实例仍监听用户 patch 文件，但其空模块根 watcher 会明确以真实 profile 目录为基础，而不是以可执行文件的虚拟 snapshot 路径为基础。
 
 ## 打包边界
 
@@ -38,7 +40,9 @@ Node 后端也不能继续作为外部前置条件。实测生产部署在尚未
 
 ## 验证
 
-聚焦的 app-boot 回归测试证明，bootstrap bare 插件和动态创建的 bare 插件都会从封闭式运行时安装锚点解析，不会命中可写 profile 中的同名包。构建后的 macOS arm64 SEA sidecar 能从隔离的 `DSH_HOME` 启动，输出有效的随机 loopback 就绪 origin，以 HTTP 200 提供已注入启动配置的页面，并在中断后退出，不再出现虚拟 snapshot HMR 错误。
+聚焦的 app-boot 回归测试证明，bootstrap bare 插件和动态创建的 bare 插件都会从封闭式运行时安装锚点解析，不会命中可写 profile 中的同名包。客户端模块回归测试分别证明 profile 优先解析与已安装运行时回退。每次 sidecar 构建都会从隔离的 `DSH_HOME` 启动编译后的可执行文件，要求注入的启动图包含客户端运行时与 UI 布局包，成功下载两项已声明 bundle，再关闭该进程。即使可执行文件的首页仍返回 HTTP 200，只要它提供空客户端图，这项检查就会失败。
+
+端到端 sidecar 构建后，pnpm 根工作区状态仍表明完整开发安装与 isolated linker。后续普通 `pnpm run` 也能直接执行，不会触发依赖修复安装。
 
 Rust 单元测试接受预期就绪 origin，并拒绝 HTTPS、`localhost`、缺失端口、非根路径和凭据。生产 macOS arm64 应用与 DMG 均成功构建，严格 deep 代码签名验证通过。启动已打包应用会在 loopback 上启动内置 sidecar；关闭原生窗口后，两个进程都会退出并释放端口。在本次构建快照中，应用 bundle 约为 235 MB，压缩 DMG 约为 67 MB；sidecar 约为 225 MB，占安装体积的主要部分。
 

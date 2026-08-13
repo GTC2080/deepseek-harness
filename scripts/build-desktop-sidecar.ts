@@ -6,17 +6,25 @@
 
 import { spawn } from 'node:child_process'
 import { existsSync, statSync } from 'node:fs'
-import { chmod, copyFile, cp, lstat, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises'
+import { chmod, copyFile, cp, lstat, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import { dirname, join, resolve, sep } from 'node:path'
+import { setTimeout as delay } from 'node:timers/promises'
 import { parseArgs } from 'node:util'
 
 const root = resolve(import.meta.dirname, '..')
 const STAGING = resolve(root, '.artifacts/desktop-sidecar/node')
 const BINARIES = resolve(root, 'src-tauri/binaries')
 const WORKSPACE_MODULES = resolve(root, 'node_modules/.pnpm/node_modules')
+const WORKSPACE_STATE = resolve(root, 'node_modules/.pnpm-workspace-state-v1.json')
 const DEPLOY_PACKAGE = '@deepseek-ai/dsh'
 const ENTRY_BIN = 'lib/bin.js'
 const PKG_SPEC = '@yao-pkg/pkg@6.21.0'
+const SIDECAR_READY_TIMEOUT_MS = 45_000
+const REQUIRED_CLIENT_PACKAGES = [
+  '@deepseek-ai/dsh-client-runtime',
+  '@deepseek-ai/dsh-client-ui-layout',
+] as const
 
 const ASSET_GLOBS = [
   'package.json',
@@ -192,17 +200,31 @@ async function deploy(cli: Cli): Promise<void> {
   }
   if (cli.dryRun) console.log(`build-desktop-sidecar: [dry-run] clear ${STAGING}`)
   else await rm(STAGING, { recursive: true, force: true })
-  await run('deploy', pnpmBin(), [
-    '--filter',
-    DEPLOY_PACKAGE,
-    'deploy',
-    '--legacy',
-    '--prod',
-    '--config.node-linker=hoisted',
-    '--config.auto-install-peers=false',
-    '--config.link-workspace-packages=true',
-    STAGING,
-  ], cli.dryRun)
+  // pnpm deploy records its production-only settings in the repository's
+  // workspace state even though it writes packages into STAGING. Preserve the
+  // existing state so later `pnpm run` commands do not attempt to reinstall
+  // the root workspace as production-only.
+  const workspaceState = !cli.dryRun && existsSync(WORKSPACE_STATE)
+    ? await readFile(WORKSPACE_STATE)
+    : undefined
+  try {
+    await run('deploy', pnpmBin(), [
+      '--filter',
+      DEPLOY_PACKAGE,
+      'deploy',
+      '--legacy',
+      '--prod',
+      '--config.node-linker=hoisted',
+      '--config.auto-install-peers=false',
+      '--config.link-workspace-packages=true',
+      STAGING,
+    ], cli.dryRun)
+  } finally {
+    if (!cli.dryRun) {
+      if (workspaceState === undefined) await rm(WORKSPACE_STATE, { force: true })
+      else await writeFile(WORKSPACE_STATE, workspaceState)
+    }
+  }
   if (cli.dryRun) {
     console.log(`build-desktop-sidecar: [dry-run] restore the dependency and required-peer closure from ${WORKSPACE_MODULES}`)
     console.log(`build-desktop-sidecar: [dry-run] remove .bin directories below ${STAGING}`)
@@ -295,6 +317,90 @@ async function buildSidecar(cli: Cli, target: HostTarget): Promise<string[]> {
   return products
 }
 
+/** Verify that the compiled executable can discover and serve its shipped browser plugins. */
+async function verifySidecar(executable: string): Promise<void> {
+  const runtimeRoot = await mkdtemp(join(tmpdir(), 'dsh-desktop-sidecar-'))
+  const child = spawn(executable, ['web', '--host', '127.0.0.1', '--port', '0'], {
+    cwd: runtimeRoot,
+    env: {
+      ...process.env,
+      DSH_HOME: join(runtimeRoot, 'dsh'),
+      DSH_AGENTS_HOME: join(runtimeRoot, 'agents'),
+      DSH_CLOSED_RUNTIME: '1',
+    },
+    stdio: ['ignore', 'pipe', 'pipe'] as const,
+  })
+  let diagnostics = ''
+  let stdout = ''
+  const appendDiagnostics = (chunk: Buffer): void => {
+    diagnostics = `${diagnostics}${chunk.toString('utf8')}`.slice(-16_384)
+  }
+  child.stdout.on('data', (chunk: Buffer) => {
+    stdout = `${stdout}${chunk.toString('utf8')}`.slice(-16_384)
+    appendDiagnostics(chunk)
+  })
+  child.stderr.on('data', appendDiagnostics)
+
+  const closed = new Promise<void>(resolveClose => child.once('close', () => { resolveClose() }))
+  try {
+    const baseUrl = await new Promise<URL>((resolveReady, reject) => {
+      const timeout = setTimeout(() => {
+        reject(new Error(`sidecar did not become ready within ${String(SIDECAR_READY_TIMEOUT_MS)} ms\n${diagnostics}`))
+      }, SIDECAR_READY_TIMEOUT_MS)
+      const inspect = (): void => {
+        const match = stdout.match(/(?:^|\n)dsh web: (http:\/\/127\.0\.0\.1:\d+)\r?(?:\n|$)/)
+        if (match?.[1] === undefined) return
+        clearTimeout(timeout)
+        resolveReady(new URL(match[1]))
+      }
+      child.stdout.on('data', inspect)
+      child.once('error', (error) => {
+        clearTimeout(timeout)
+        reject(error)
+      })
+      child.once('close', (code, signal) => {
+        clearTimeout(timeout)
+        const status = code === null ? `signal ${signal ?? 'unknown'}` : `exit code ${String(code)}`
+        reject(new Error(`sidecar stopped before readiness (${status})\n${diagnostics}`))
+      })
+      inspect()
+    })
+
+    const indexResponse = await fetch(baseUrl, { signal: AbortSignal.timeout(30_000) })
+    if (!indexResponse.ok) {
+      throw new Error(`sidecar index returned HTTP ${String(indexResponse.status)}`)
+    }
+    const html = await indexResponse.text()
+    const marker = '<script>window.__DSH_BOOT__ = '
+    const start = html.indexOf(marker)
+    const end = start === -1 ? -1 : html.indexOf('</script>', start)
+    if (start === -1 || end === -1) throw new Error('sidecar index contains no boot manifest')
+    const parsed = JSON.parse(html.slice(start + marker.length, end)) as { entries?: unknown }
+    if (!Array.isArray(parsed.entries)) throw new Error('sidecar boot manifest has no entries array')
+
+    for (const id of REQUIRED_CLIENT_PACKAGES) {
+      const row = parsed.entries.find((candidate): candidate is { id: string; url: string } => (
+        typeof candidate === 'object' && candidate !== null
+        && (candidate as Record<string, unknown>).id === id
+        && typeof (candidate as Record<string, unknown>).url === 'string'
+      ))
+      if (row === undefined) throw new Error(`sidecar boot manifest is missing ${id}`)
+      const bundleResponse = await fetch(new URL(row.url, baseUrl), { signal: AbortSignal.timeout(30_000) })
+      if (!bundleResponse.ok) {
+        throw new Error(`${id} returned HTTP ${String(bundleResponse.status)}`)
+      }
+      await bundleResponse.arrayBuffer()
+    }
+    console.log(`build-desktop-sidecar: verified ${String(parsed.entries.length)} browser plugins from the closed runtime`)
+  } finally {
+    if (child.exitCode === null && child.signalCode === null) child.kill('SIGTERM')
+    await Promise.race([closed, delay(5_000, undefined, { ref: false })])
+    if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL')
+    await closed
+    await rm(runtimeRoot, { recursive: true, force: true })
+  }
+}
+
 async function main(): Promise<void> {
   const cli = parseCli(process.argv.slice(2))
   const target = resolveHostTarget()
@@ -303,6 +409,10 @@ async function main(): Promise<void> {
   await deploy(cli)
   await injectPkgConfig(cli)
   const products = await buildSidecar(cli, target)
+  const executable = products[0]
+  if (executable === undefined) throw new Error('desktop sidecar build produced no executable')
+  if (cli.dryRun) console.log(`build-desktop-sidecar: [dry-run] verify ${executable}`)
+  else await verifySidecar(executable)
   console.log(cli.dryRun ? 'build-desktop-sidecar: [dry-run] would produce:' : 'build-desktop-sidecar: products:')
   for (const path of products) {
     if (cli.dryRun) console.log(`  ${path}`)

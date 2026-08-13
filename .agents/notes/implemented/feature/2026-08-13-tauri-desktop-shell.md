@@ -18,9 +18,11 @@ The desktop application is a Tauri v2 shell in `src-tauri/`. Tauri supplies nati
 
 `scripts/build-desktop-sidecar.ts` builds the repository, creates a production deployment closure, restores its required dependency and peer-dependency closure, rejects remaining symbolic links, and compiles that closure into one native-host Node SEA executable. Tauri bundles it as the `dsh-backend` external binary. macOS also bundles node-pty's `dsh-backend-spawn-helper` beside it because node-pty resolves that executable from `process.execPath`.
 
+The production deploy snapshots and restores pnpm's root workspace state. Without that boundary, pnpm records the staging-only hoisted production settings against the development checkout and tries to reinstall production dependencies on the next non-interactive command.
+
 The shell starts a local static loading page, creates the operating-system application-data directory, and launches `dsh web --host 127.0.0.1 --port 0` with that directory as `DSH_HOME` and working directory. It accepts only the exact readiness prefix followed by an uncredentialed `http://127.0.0.1:<nonzero-port>/` origin, then navigates the WebView. A 45-second timeout, early process exit, malformed readiness output, and navigation failure remain visible startup errors. Closing the main window terminates the child and exits the application.
 
-The closed runtime sets `DSH_CLOSED_RUNTIME=1`. Its root Loader and bootstrap Include resolve shipped bare plugins from the executable's installation anchor instead of the writable profile directory. The profile's config-only HMR instance still watches user patch files, but its empty module-root watcher is explicitly based at the real profile directory rather than the executable's virtual snapshot path.
+The closed runtime sets `DSH_CLOSED_RUNTIME=1`. Its root Loader and bootstrap Include resolve shipped bare plugins from the executable's installation anchor instead of the writable profile directory. The client-module host resolves each browser plugin from the profile first and then the Loader's installation anchor; shipped browser bundles therefore remain inside the SEA virtual filesystem instead of depending on operating-system links to virtual paths. The profile's config-only HMR instance still watches user patch files, but its empty module-root watcher is explicitly based at the real profile directory rather than the executable's virtual snapshot path.
 
 ## Packaging boundary
 
@@ -38,7 +40,9 @@ The application still exposes the existing Harness HTTP service to local process
 
 ## Verification
 
-A focused app-boot regression test proves that both bootstrap and dynamically created bare plugins resolve from the closed-runtime installation anchor instead of a same-named package in the writable profile. The built macOS arm64 SEA sidecar starts from an isolated `DSH_HOME`, emits a valid random loopback readiness origin, serves an injected boot page with HTTP 200, and shuts down on interruption without the virtual-snapshot HMR error.
+A focused app-boot regression test proves that both bootstrap and dynamically created bare plugins resolve from the closed-runtime installation anchor instead of a same-named package in the writable profile. A client-module regression test proves profile-first resolution and the installed-runtime fallback independently. Every sidecar build starts the compiled executable from an isolated `DSH_HOME`, requires the injected boot graph to contain the client runtime and UI layout packages, downloads both advertised bundles successfully, and shuts the process down. This check fails when the executable serves an empty client graph even if its index still returns HTTP 200.
+
+After an end-to-end sidecar build, pnpm's root workspace state still reports the full development install and isolated linker. A subsequent ordinary `pnpm run` proceeds without a dependency repair install.
 
 Rust unit tests accept the expected readiness origin and reject HTTPS, `localhost`, missing ports, non-root paths, and credentials. The production macOS arm64 application and DMG build successfully; strict deep code-signature verification passes. Launching the packaged application starts the bundled sidecar on loopback, and closing the native window exits both processes and releases the port. In this build snapshot, the application bundle is approximately 235 MB and the compressed DMG is approximately 67 MB; the sidecar is approximately 225 MB and dominates the installed size.
 

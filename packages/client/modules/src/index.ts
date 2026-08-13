@@ -202,15 +202,28 @@ export class ClientModuleRegistry extends Service {
    */
   constructor(ctx: Context) {
     super(ctx, 'clientModules')
-    // Resolution anchor: the config tree's baseUrl (the cordis.yml directory,
-    // whose package declares every composed plugin as a dependency). The
-    // modules package's own URL would miss sibling packages under pnpm's
-    // isolated node_modules.
+    // Resolution anchors preserve profile-installed plugin precedence, then
+    // fall back to the Loader's installed-runtime base. Closed executables
+    // need the latter because their shipped packages live in the SEA virtual
+    // filesystem and cannot be reached through an operating-system symlink.
     if (ctx.baseUrl === undefined) {
       throw new Error('client-modules: ctx.baseUrl is unset — the node half needs the config-tree anchor to resolve plugin packages')
     }
-    const require = createRequire(ctx.baseUrl)
-    this.resolvePkgJson = spec => require.resolve(`${spec}/package.json`)
+    const anchors = [ctx.baseUrl, ctx.loader.config.baseUrl]
+      .filter((anchor): anchor is string => anchor !== undefined)
+    const resolvers = [...new Set(anchors)].map(anchor => createRequire(anchor).resolve)
+    this.resolvePkgJson = (spec) => {
+      const request = `${spec}/package.json`
+      let resolutionError: unknown
+      for (const resolve of resolvers) {
+        try {
+          return resolve(request)
+        } catch (error) {
+          resolutionError = error
+        }
+      }
+      throw resolutionError
+    }
 
     // Subscribe before seeding so a fiber arriving mid-activation lands in the
     // same dirty set (Set idempotence makes the overlap harmless). An entry-less
