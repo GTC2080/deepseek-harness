@@ -21,11 +21,15 @@ Yes, but I treat it as a preview rather than a finished public release.
 - The packaged app contains the plugins shipped by this repository. Adding outside Node.js plugins still requires rebuilding the app.
 - The macOS package is not notarized, Windows code signing is not complete, and automatic updates are not included.
 
+## Download
+
+The first macOS Apple Silicon preview package is available on [GitHub Releases](https://github.com/GTC2080/deepseek-harness-desktop/releases). I publish it as a pre-release because it is ad-hoc signed and not notarized. Check the attached SHA-256 before opening it.
+
 <a id="run"></a><a id="run-from-source"></a>
 
 ## Build it yourself
 
-For now, this repository provides source code rather than an officially signed installer. If you want to try it, install Node.js, pnpm, and Rust, then build on the operating system you want to package:
+If you need another platform or prefer to build locally, install Node.js, pnpm, and Rust, then build on the operating system you want to package:
 
 ```sh
 pnpm install

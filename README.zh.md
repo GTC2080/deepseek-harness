@@ -21,11 +21,15 @@
 - 打包后的应用包含这个仓库随附的插件；如果要加入仓库外的 Node.js 插件，目前仍然需要重新构建应用。
 - macOS 包尚未 notarize，Windows 代码签名也没有完成，并且当前不包含自动更新。
 
+## 下载
+
+第一个 macOS Apple Silicon 预览安装包已经放在 [GitHub Releases](https://github.com/GTC2080/deepseek-harness-desktop/releases)。我会把它标记为 prerelease，因为它目前只使用 ad-hoc 签名，并且尚未 notarize。打开前请先核对随附的 SHA-256。
+
 <a id="run"></a><a id="run-from-source"></a>
 
 ## 自己构建
 
-目前这个仓库先提供源码，而不是经过正式签名的安装包。如果你想尝试，请安装 Node.js、pnpm 和 Rust，然后在希望打包的操作系统上运行：
+如果你需要其他平台，或者希望自己在本地构建，请安装 Node.js、pnpm 和 Rust，然后在希望打包的操作系统上运行：
 
 ```sh
 pnpm install
