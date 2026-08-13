@@ -164,6 +164,9 @@ describe('client bundle CSS Modules watch graph', () => {
     ))
     const virtualId = plugin.resolveId?.('./QueueDock.module.css', importer)
     if (virtualId === null || virtualId === undefined) throw new Error('CSS Modules import was not resolved')
+    expect(virtualId).toBe(
+      '\0dsh-css:packages/client/ui-conversation/src/client/queue/QueueDock.module.css.mjs',
+    )
     const addWatchFile = vi.fn()
 
     await plugin.load?.call({ addWatchFile }, virtualId)

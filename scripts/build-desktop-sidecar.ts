@@ -210,6 +210,7 @@ async function deploy(cli: Cli): Promise<void> {
   }
   await restoreRuntimeClosure()
   await removeBinDirectories(STAGING)
+  await rm(join(STAGING, 'node_modules', '.modules.yaml'), { force: true })
   const link = await findSymlink(STAGING)
   if (link !== undefined) throw new Error(`staged production closure still contains a symbolic link: ${link}`)
 }
