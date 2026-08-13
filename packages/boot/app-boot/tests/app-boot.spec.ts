@@ -564,8 +564,12 @@ describe('boot', () => {
     const absolutePlugin = join(dir, 'absolute.mjs')
     const shadow = join(dir, 'node_modules', '@deepseek-ai', 'dsh-system-prompt')
     const harnessPlugin = join(harness, 'node_modules', '@deepseek-ai', 'dsh-system-prompt')
+    const shadowCreated = join(dir, 'node_modules', '@deepseek-ai', 'dsh-host-created')
+    const harnessCreated = join(harness, 'node_modules', '@deepseek-ai', 'dsh-host-created')
     mkdirSync(shadow, { recursive: true })
     mkdirSync(harnessPlugin, { recursive: true })
+    mkdirSync(shadowCreated, { recursive: true })
+    mkdirSync(harnessCreated, { recursive: true })
     writeFileSync(join(shadow, 'package.json'), JSON.stringify({
       name: '@deepseek-ai/dsh-system-prompt',
       type: 'module',
@@ -583,8 +587,31 @@ describe('boot', () => {
       exports: './index.mjs',
     }))
     writeFileSync(join(harnessPlugin, 'index.mjs'), [
-      'export function apply(ctx) {',
+      'export async function apply(ctx) {',
       '  ctx.provide("harnessPluginLoaded", true)',
+      '  await ctx.loader.create({ id: "host-created", name: "@deepseek-ai/dsh-host-created" })',
+      '}',
+      '',
+    ].join('\n'))
+    writeFileSync(join(shadowCreated, 'package.json'), JSON.stringify({
+      name: '@deepseek-ai/dsh-host-created',
+      type: 'module',
+      exports: './index.mjs',
+    }))
+    writeFileSync(join(shadowCreated, 'index.mjs'), [
+      'export function apply(ctx) {',
+      '  ctx.provide("shadowCreatedPluginLoaded", true)',
+      '}',
+      '',
+    ].join('\n'))
+    writeFileSync(join(harnessCreated, 'package.json'), JSON.stringify({
+      name: '@deepseek-ai/dsh-host-created',
+      type: 'module',
+      exports: './index.mjs',
+    }))
+    writeFileSync(join(harnessCreated, 'index.mjs'), [
+      'export function apply(ctx) {',
+      '  ctx.provide("harnessCreatedPluginLoaded", true)',
       '}',
       '',
     ].join('\n'))
@@ -617,7 +644,9 @@ describe('boot', () => {
     const ctx = await boot(NAME, hostOwnedPath, undefined, undefined, harnessBaseUrl)
     try {
       expect(ctx.get('harnessPluginLoaded')).toBe(true)
+      expect(ctx.get('harnessCreatedPluginLoaded')).toBe(true)
       expect(ctx.get('shadowPluginLoaded')).toBeUndefined()
+      expect(ctx.get('shadowCreatedPluginLoaded')).toBeUndefined()
       expect(ctx.get('relativePluginLoaded')).toBe(true)
       expect(ctx.get('absolutePluginLoaded')).toBe(true)
     } finally {

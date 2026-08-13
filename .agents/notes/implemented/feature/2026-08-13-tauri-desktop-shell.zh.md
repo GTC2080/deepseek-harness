@@ -1,0 +1,65 @@
+# Agent Note: 基于 loopback Web 运行时的 Tauri 桌面壳
+
+Status: implemented
+
+[English](2026-08-13-tauri-desktop-shell.md) | 中文
+
+## 问题
+
+Windows 与 macOS 用户需要无需预先安装 Node.js 工具链即可使用的 DeepSeek Harness 安装包。Electron 壳能提供这种体验，但也会附带第二套浏览器引擎，并增加启动耗时、内存、包体积和安全更新成本。
+
+构建后的 Web 文件不是独立应用。`dsh web` 会注入运行时启动 manifest，托管 API 与插件 bundle，并承载 WebSocket 流量。直接在 WebView 中加载 `apps/web/dist` 只会显示不完整的静态文件，同时绕过现有宿主生命周期。
+
+Node 后端也不能继续作为外部前置条件。实测生产部署在尚未加入约 115 MB 的 Node 可执行文件前，就已占用约 328 MB、包含超过 31,000 个文件；这种布局既不能形成小型安装包，也不适合作为稳健的桌面应用结构。
+
+## 决策
+
+桌面应用是在 `src-tauri/` 中实现的 Tauri v2 壳。Tauri 提供原生窗口与操作系统 WebView；它不会替换或复制现有 Web 客户端或 HTTP 载体。
+
+`scripts/build-desktop-sidecar.ts` 会构建仓库、创建生产部署闭包、补回其中必需的 dependency 与 peer dependency 闭包、拒绝残留符号链接，并把该闭包编译为当前原生宿主的单个 Node SEA 可执行文件。Tauri 将其作为 `dsh-backend` external binary 打包。macOS 还会把 node-pty 的 `dsh-backend-spawn-helper` 放在旁边，因为 node-pty 根据 `process.execPath` 查找该可执行文件。
+
+桌面壳先打开本地静态加载页，创建操作系统应用数据目录，再以该目录作为 `DSH_HOME` 和工作目录启动 `dsh web --host 127.0.0.1 --port 0`。它只接受精确的就绪前缀，以及紧随其后的无凭据 `http://127.0.0.1:<非零端口>/` origin，然后才让 WebView 导航。45 秒超时、进程过早退出、畸形就绪输出和导航失败都会作为可见启动错误保留下来。关闭主窗口会终止子进程并退出应用。
+
+封闭式运行时设置 `DSH_CLOSED_RUNTIME=1`。其根 Loader 与 bootstrap Include 从可执行文件的安装锚点解析随附 bare 插件，不会从可写 profile 目录解析。profile 的仅配置 HMR 实例仍监听用户 patch 文件，但其空模块根 watcher 会明确以真实 profile 目录为基础，而不是以可执行文件的虚拟 snapshot 路径为基础。
+
+## 打包边界
+
+构建流程把 macOS 与 Windows 的 x64／ARM64 宿主映射到各自原生 Rust 和 SEA 目标。它有意不做交叉编译或发布：每个操作系统分别构建并验证自己的包。生成的 sidecar 与 Rust target 仍是被忽略的构建产物；Tauri 源码、Cargo lock、图标和加载页则进入版本控制。
+
+封闭式可执行文件支持仓库随附的插件图。运行时安装仓库外 Node 插件不属于此桌面约定，因为 bare 插件解析被有意锚定在可执行文件内部。
+
+签名、公证、Windows 安装程序签名、自动更新、CI 发布和可移植 Linux 包属于独立发布事项。本地 macOS 构建使用 ad-hoc 签名。其 Hardened Runtime entitlement 仅保留 Node/V8 的 JIT 代码和内嵌原生库所需权限。
+
+## 安全边界
+
+加载页采用严格的 Content Security Policy，并且没有任何 Tauri JavaScript capability 或原生命令 API。Rust 负责 sidecar 启动与导航。选定 URL 无法把启动导航转向其他主机、scheme、带凭据 authority、固定特权端口、路径、query 或 fragment。
+
+应用仍会在临时 loopback 端口上向本地进程公开现有 Harness HTTP 服务。随机选择端口可以减少冲突，但它不是认证，也不被视为 trust boundary。本设计不会新增 LAN listener，也不会增加从 Web 内容到原生层的 IPC 桥。
+
+## 验证
+
+聚焦的 app-boot 回归测试证明，bootstrap bare 插件和动态创建的 bare 插件都会从封闭式运行时安装锚点解析，不会命中可写 profile 中的同名包。构建后的 macOS arm64 SEA sidecar 能从隔离的 `DSH_HOME` 启动，输出有效的随机 loopback 就绪 origin，以 HTTP 200 提供已注入启动配置的页面，并在中断后退出，不再出现虚拟 snapshot HMR 错误。
+
+Rust 单元测试接受预期就绪 origin，并拒绝 HTTPS、`localhost`、缺失端口、非根路径和凭据。生产 macOS arm64 应用与 DMG 均成功构建，严格 deep 代码签名验证通过。启动已打包应用会在 loopback 上启动内置 sidecar；关闭原生窗口后，两个进程都会退出并释放端口。在本次构建快照中，应用 bundle 约为 235 MB，压缩 DMG 约为 67 MB；sidecar 约为 225 MB，占安装体积的主要部分。
+
+Windows 源码映射与 bundle 配置已经存在，但无法在 macOS 上完成可执行验证。发布 Windows 安装程序前仍必须进行 Windows 原生构建。
+
+## 考虑过的替代方案
+
+**使用带 IPC 载体的 Electron。** 本次交付不采用该方案，因为打包 Chromium 会复制操作系统浏览器引擎，并增加包体积、运行时内存、启动成本和浏览器补丁成本。未来的其他桌面壳仍可实现 GUI 分层约定所描述的 IPC 载体；当前 Tauri 壳不需要它。
+
+**直接从磁盘加载 `apps/web/dist`。** 不予采用，因为 Web 宿主负责启动 manifest 注入、API 路由、插件 bundle、WebSocket upgrade 和关闭语义。在桌面壳中重建这些约定，比通过 loopback 复用 `dsh web` 更大，也更脆弱。
+
+**同时打包独立 Node 可执行文件和部署目录。** 不予采用，因为实测布局会把大型运行时与数万个文件组合起来，安装字节数也高于 SEA；它还会扩大杀毒软件扫描、安装程序和部分升级的表面积。
+
+**要求用户安装 Node.js。** 不予采用，因为这不能形成可安装桌面产品，会把运行时选择与升级交给用户，并削弱可复现性。
+
+**用 Rust 重写后端。** 不予采用，因为这只会为打包而复制插件运行时、进程与文件系统能力、agent 生命周期、配置和 Web 宿主。Tauri 是窗口与生命周期壳，不是第二套 Harness 实现。
+
+## 后果
+
+桌面应用不附带 Chromium，并复用产品当前 Web 行为。最终用户获得单个原生应用，无需管理 Node.js；平台 WebView 的安全更新仍由操作系统负责。
+
+Node 后端仍占据主要磁盘与内存：Tauri 让桌面壳变轻，并不会让 Harness 运行时消失。SEA 打包是一种封闭部署，某些假定可以运行任意外部 Node 脚本或动态安装包的功能可能继续暴露不兼容；在声称支持之前，这些路径必须接受已打包应用测试。
+
+macOS 会同时签名应用、sidecar 和 node-pty helper。JIT 与 library validation entitlement 是在 Hardened Runtime 下内嵌 V8 的真实安全成本，因此桌面壳有意不向远程 origin 提供任何原生 capability。公开分发必须以平台身份替换 ad-hoc 签名，并完成操作系统专属发布检查。

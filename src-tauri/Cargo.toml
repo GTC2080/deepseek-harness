@@ -1,0 +1,18 @@
+[package]
+name = "deepseek-harness-desktop"
+version = "0.1.0-rc.5"
+description = "Lightweight desktop shell for DeepSeek Harness"
+authors = ["DeepSeek"]
+edition = "2021"
+
+[lib]
+name = "deepseek_harness_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.6.3", features = [] }
+
+[dependencies]
+serde_json = "1"
+tauri = { version = "2.11.5", features = [] }
+tauri-plugin-shell = "2.3.5"

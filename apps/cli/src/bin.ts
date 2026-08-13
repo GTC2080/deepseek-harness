@@ -34,6 +34,7 @@ switch (invocation.mode) {
       profile: invocation.profile,
       patchFiles: invocation.patches,
       args: invocation.args,
+      ...(process.env.DSH_CLOSED_RUNTIME === '1' ? { bareModuleBaseUrl: import.meta.url } : {}),
     })
     break
   }

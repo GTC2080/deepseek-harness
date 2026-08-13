@@ -1,0 +1,12 @@
+{
+  "bundle": {
+    "externalBin": [
+      "binaries/dsh-backend",
+      "binaries/dsh-backend-spawn-helper"
+    ],
+    "macOS": {
+      "entitlements": "Entitlements.plist",
+      "signingIdentity": "-"
+    }
+  }
+}
