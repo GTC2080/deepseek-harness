@@ -11,6 +11,8 @@ import { spawn, type StdioOptions } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import type { Win32DialogWorkerData } from './win32-dialog-worker.ts'
 
+const PACKAGED_WORKER_ARG = '--dsh-internal-win32-dialog-worker'
+
 /**
  * Spawn the dialog child process. Built consumers launch the bundled CJS
  * entry next to this module under plain node; unbuilt (source) consumers
@@ -23,6 +25,12 @@ import type { Win32DialogWorkerData } from './win32-dialog-worker.ts'
 export function spawnDialogWorker(data: Win32DialogWorkerData): ReturnType<typeof spawn> {
   const env = { ...process.env, DSH_DIALOG_TITLE: data.title }
   const stdio: StdioOptions = ['ignore', 'inherit', 'inherit', 'ipc']
+  // A pkg/SEA executable always runs its embedded CLI entrypoint; it cannot
+  // act as plain `node worker.cjs`. Let that entrypoint dispatch the bundled
+  // worker instead while preserving this dedicated-process dialog boundary.
+  if ('pkg' in process) {
+    return spawn(process.execPath, [PACKAGED_WORKER_ARG], { env, stdio, windowsHide: true })
+  }
   /* v8 ignore next 3 -- the built-output arm: tests always run unbuilt (src/) */
   if (!import.meta.url.endsWith('.ts')) {
     return spawn(process.execPath, [fileURLToPath(new URL('./worker.cjs', import.meta.url))], { env, stdio, windowsHide: true })

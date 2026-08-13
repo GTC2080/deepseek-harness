@@ -21,7 +21,9 @@ const WORKSPACE_STATE = resolve(root, 'node_modules/.pnpm-workspace-state-v1.jso
 const DEPLOY_PACKAGE = '@deepseek-ai/dsh'
 const ENTRY_BIN = 'lib/bin.js'
 const PKG_SPEC = '@yao-pkg/pkg@6.21.0'
+const PACKAGED_DIALOG_WORKER_ARG = '--dsh-internal-win32-dialog-worker'
 const SIDECAR_READY_TIMEOUT_MS = 45_000
+const DIALOG_WORKER_READY_TIMEOUT_MS = 15_000
 const REQUIRED_CLIENT_PACKAGES = [
   '@deepseek-ai/dsh-client-runtime',
   '@deepseek-ai/dsh-client-ui-layout',
@@ -461,6 +463,81 @@ async function verifySidecar(executable: string): Promise<void> {
   }
 }
 
+/** Verify that the SEA can re-enter its packaged Win32 dialog worker over IPC. */
+async function verifyDialogWorkerEntrypoint(executable: string): Promise<void> {
+  const child = spawn(executable, [PACKAGED_DIALOG_WORKER_ARG], {
+    env: {
+      ...process.env,
+      DSH_DIALOG_TITLE: 'Desktop packaged-worker verification',
+    },
+    stdio: ['ignore', 'pipe', 'pipe', 'ipc'] as const,
+    windowsHide: true,
+  })
+  let diagnostics = ''
+  const appendDiagnostics = (chunk: Buffer): void => {
+    diagnostics = `${diagnostics}${chunk.toString('utf8')}`.slice(-16_384)
+  }
+  child.stdout?.on('data', appendDiagnostics)
+  child.stderr?.on('data', appendDiagnostics)
+  const closed = new Promise<void>(resolveClose => child.once('close', () => { resolveClose() }))
+
+  try {
+    await new Promise<void>((resolveReady, reject) => {
+      let settled = false
+      const finish = (outcome: () => void): void => {
+        if (settled) return
+        settled = true
+        clearTimeout(timeout)
+        outcome()
+      }
+      const timeout = setTimeout(() => {
+        finish(() => {
+          reject(new Error(
+            `packaged dialog worker did not report within ${String(DIALOG_WORKER_READY_TIMEOUT_MS)} ms\n${diagnostics}`,
+          ))
+        })
+      }, DIALOG_WORKER_READY_TIMEOUT_MS)
+
+      child.on('message', (message: unknown) => {
+        if (!isRecord(message) || typeof message.kind !== 'string') {
+          finish(() => { reject(new Error(`packaged dialog worker returned an invalid IPC message\n${diagnostics}`)) })
+          return
+        }
+        if (process.platform === 'win32' && message.kind === 'showing'
+          && typeof message.threadId === 'number' && Number.isInteger(message.threadId) && message.threadId > 0) {
+          finish(resolveReady)
+          return
+        }
+        if (process.platform !== 'win32' && message.kind === 'error'
+          && typeof message.message === 'string' && message.message !== '') {
+          // Non-Windows hosts cannot create the Win32 dialog; reaching the
+          // structured native-surface error still proves SEA dispatch, IPC,
+          // the bundled worker, and its koffi import all loaded correctly.
+          finish(resolveReady)
+          return
+        }
+        const detail = message.kind === 'error' && typeof message.message === 'string'
+          ? `: ${message.message}`
+          : `: ${JSON.stringify(message)}`
+        finish(() => { reject(new Error(`packaged dialog worker failed its ${process.platform} handshake${detail}`)) })
+      })
+      child.once('error', (error) => {
+        finish(() => { reject(new Error(`packaged dialog worker failed to spawn: ${error.message}`)) })
+      })
+      child.once('close', (code, signal) => {
+        const status = code === null ? `signal ${signal ?? 'unknown'}` : `exit code ${String(code)}`
+        finish(() => { reject(new Error(`packaged dialog worker stopped before its handshake (${status})\n${diagnostics}`)) })
+      })
+    })
+    console.log(`build-desktop-sidecar: verified packaged dialog-worker dispatch on ${process.platform}`)
+  } finally {
+    if (child.exitCode === null && child.signalCode === null) child.kill('SIGTERM')
+    await Promise.race([closed, delay(5_000, undefined, { ref: false })])
+    if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL')
+    await closed
+  }
+}
+
 async function main(): Promise<void> {
   const cli = parseCli(process.argv.slice(2))
   const target = resolveHostTarget()
@@ -472,7 +549,10 @@ async function main(): Promise<void> {
   const executable = products[0]
   if (executable === undefined) throw new Error('desktop sidecar build produced no executable')
   if (cli.dryRun) console.log(`build-desktop-sidecar: [dry-run] verify ${executable}`)
-  else await verifySidecar(executable)
+  else {
+    await verifySidecar(executable)
+    await verifyDialogWorkerEntrypoint(executable)
+  }
   console.log(cli.dryRun ? 'build-desktop-sidecar: [dry-run] would produce:' : 'build-desktop-sidecar: products:')
   for (const path of products) {
     if (cli.dryRun) console.log(`  ${path}`)

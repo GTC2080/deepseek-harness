@@ -42,6 +42,9 @@
       "path": "../../packages/host/frontend-static"
     },
     {
+      "path": "../../packages/host/directory-picker-native"
+    },
+    {
       "path": "../../packages/core/session"
     },
     {

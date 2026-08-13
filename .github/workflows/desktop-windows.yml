@@ -66,6 +66,7 @@ jobs:
           packages/host/directory-picker-native/tests/native-picker.spec.ts
           packages/host/directory-picker-native/tests/service.spec.ts
           packages/host/directory-picker-native/tests/win32-dialog-bindings.spec.ts
+          packages/host/directory-picker-native/tests/win32-dialog-host.spec.ts
           packages/host/directory-picker-native/tests/win32-dialog-logic.spec.ts
           packages/host/directory-picker-native/tests/win32-dialog.spec.ts
           packages/host/directory-picker-auto/tests/resolve.spec.ts
