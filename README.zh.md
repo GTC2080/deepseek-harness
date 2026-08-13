@@ -14,7 +14,7 @@ DeepSeek Harness Desktop 将 [DeepSeek Harness](https://github.com/deepseek-ai/d
 
 ## 发布状态
 
-当前提供的是预览版安装包：
+当前稳定版包括：
 
 - macOS Apple Silicon DMG 已完成启动、页面加载、应用退出和运行时清理验证。
 - Windows x64 提供 NSIS 与 MSI 安装程序。Windows CI 会验证桌面行为、原生壳、打包后的文件夹选择器 worker 和安装包构建。
@@ -23,7 +23,7 @@ DeepSeek Harness Desktop 将 [DeepSeek Harness](https://github.com/deepseek-ai/d
 
 ## 下载
 
-当前 macOS Apple Silicon 和 Windows x64 预览安装包可从 [GitHub Releases](https://github.com/GTC2080/deepseek-harness-desktop/releases) 下载。Windows 普通安装建议使用 NSIS `.exe`，需要 MSI 格式时使用 `.msi`；两者选择一个即可。安装前请核对 Release 中提供的 SHA-256。
+当前 macOS Apple Silicon 和 Windows x64 安装包可从 [GitHub Releases](https://github.com/GTC2080/deepseek-harness-desktop/releases) 下载。Windows 普通安装建议使用 NSIS `.exe`，需要 MSI 格式时使用 `.msi`；两者选择一个即可。安装前请核对 Release 中提供的 SHA-256。
 
 <a id="run"></a><a id="run-from-source"></a>
 

@@ -14,7 +14,7 @@ This design avoids a duplicated browser runtime while keeping desktop-specific c
 
 ## Release status
 
-The current packages are preview builds:
+The current stable release includes:
 
 - The macOS Apple Silicon DMG has been validated for startup, page loading, application shutdown, and runtime cleanup.
 - Windows x64 NSIS and MSI installers are available. Windows CI validates desktop behavior, the native shell, the packaged folder-dialog worker, and installer production.
@@ -23,7 +23,7 @@ The current packages are preview builds:
 
 ## Download
 
-The current macOS Apple Silicon and Windows x64 preview packages are available on [GitHub Releases](https://github.com/GTC2080/deepseek-harness-desktop/releases). For Windows, use the NSIS `.exe` for a normal installation or the `.msi` when that format is required; only one installer is needed. Verify the attached SHA-256 checksums before installation.
+The current macOS Apple Silicon and Windows x64 packages are available on [GitHub Releases](https://github.com/GTC2080/deepseek-harness-desktop/releases). For Windows, use the NSIS `.exe` for a normal installation or the `.msi` when that format is required; only one installer is needed. Verify the attached SHA-256 checksums before installation.
 
 <a id="run"></a><a id="run-from-source"></a>
 
