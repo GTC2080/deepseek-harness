@@ -1,74 +1,43 @@
-# DeepSeek Harness
+# DeepSeek Harness Desktop
 
 [English](README.md) | 中文
 
-DeepSeek Harness（`dsh`）是由 [DeepSeek AI](https://deepseek.com) 开发的开源 agent harness（智能体框架）。
+我做这个桌面版本的原因很简单：我希望 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 能像普通软件一样直接打开，而不是让每个使用者都先安装 Node.js、打开终端，再记住一串启动命令。
 
-它采用**一切皆插件**的架构，并由 [Cordis](https://github.com/cordiverse/cordis) 驱动，其设计参见论文 [_A Programming Paradigm for Spatiotemporal Composability_](https://github.com/cordiverse/paper)。
+这是我基于上游项目维护的独立桌面封装，并不是 DeepSeek 官方发行版。我没有重写原来的 Harness 和插件体系；桌面层只负责启动本地运行时、打开界面，并在窗口关闭时把相关进程一起干净地结束。
 
-## 开发者预览
+## 为什么选择 Tauri
 
-DeepSeek Harness 目前处于 _开发者预览_ 阶段，正在快速迭代。**未来将出现破坏兼容性的变更。**
+我没有选择 Electron，因为我不想为了一个本地界面再打包一整套 Chromium。这个版本使用 Tauri 和操作系统自带的 WebView。运行时会随应用一起提供，并且只监听随机的 `127.0.0.1` 端口，所以普通用户不需要另外安装 Node.js。
 
-## 运行
+我说的“轻量”并不是假装整个软件可以被压缩到几 MB。DeepSeek Harness 和它的运行时本身仍然有真实体积。我的目标更实际：不重复打包浏览器，也尽量让桌面层保持简单、透明和容易维护。
 
-### 通过 `npm` 运行
+## 现在能用吗？
 
-安装 `Node.js`，然后运行：
+可以，但我更愿意把它称为预览版，而不是已经完成公开分发准备的正式版本。
+
+- macOS Apple Silicon 版本已经完整验证过，包括启动、页面加载、关闭窗口和运行时清理。
+- Windows x64 与 ARM64 的构建路径已经接好，但我还没有在真实 Windows 机器上验证安装程序。
+- 打包后的应用包含这个仓库随附的插件；如果要加入仓库外的 Node.js 插件，目前仍然需要重新构建应用。
+- macOS 包尚未 notarize，Windows 代码签名也没有完成，并且当前不包含自动更新。
+
+<a id="run"></a><a id="run-from-source"></a>
+
+## 自己构建
+
+目前这个仓库先提供源码，而不是经过正式签名的安装包。如果你想尝试，请安装 Node.js、pnpm 和 Rust，然后在希望打包的操作系统上运行：
 
 ```sh
-npx @deepseek-ai/dsh web
-```
-
-该命令会启动 Web UI，默认地址为 `http://127.0.0.1:3080`。详见 [Web UI 指南](docs/user/guide/index.md)。
-
-### 从源码运行
-
-如需从仓库源码运行：
-
-```sh
-git clone https://github.com/deepseek-ai/deepseek-harness.git
-cd deepseek-harness
 pnpm install
-pnpm run build
-pnpm dsh web
+pnpm run desktop:build
 ```
 
-## 社区与支持
+完整的前置条件和平台说明放在[桌面端构建文档](desktop/README.md)里。
 
-- 欢迎通过 [GitHub Discussions](https://github.com/deepseek-ai/deepseek-harness/discussions) 提交反馈或 bug 报告。
-- 为你的插件仓库添加 [`dsh-plugin`](https://github.com/topics/dsh-plugin) 话题，便于被发现。
-- 欢迎加入 DeepSeek Harness 企微群：扫码添加企微小助手并填写入群问卷，完成后小助手会邀请你入群。
+## 我希望它保持什么样子
 
-<table>
-  <thead>
-    <tr>
-      <th align="center">企微小助手</th>
-      <th align="center">入群问卷</th>
-      <th align="center">微信公众号</th>
-    </tr>
-  </thead>
-  <tbody>
-    <tr>
-      <td align="center"><img src="assets/community-wecom-assistant.png" alt="DeepSeek Harness 企微小助手二维码" width="180" height="180"></td>
-      <td align="center"><a href="https://trtgsjkv6r.feishu.cn/share/base/form/shrcnIt5twSVdLGD52KJBckGCgg"><img src="assets/community-wecom-survey.png" alt="DeepSeek Harness 入群问卷二维码" width="180" height="180"></a></td>
-      <td align="center"><img src="assets/community-wechat-official-account.png" alt="DeepSeek Harness 团队微信公众号二维码" width="180" height="180"></td>
-    </tr>
-  </tbody>
-</table>
+我不希望这个项目最后又变成一套庞大的框架。我希望它一直是 DeepSeek Harness 一个实用的桌面入口：打开简单、默认在本地运行、对完成度保持诚实，并且只保留真正需要的重量。
 
-## 参与贡献
+## 上游项目与许可证
 
-参见 [CONTRIBUTING.md](CONTRIBUTING.md)。
-
-## 开发
-
-请先阅读[开发指南](docs/development.md)与[架构文档](docs/architecture.md)。
-
-面向 agent：请遵循 [AGENTS.md](AGENTS.md)。
-
-## 许可证
-
-[MIT](LICENSE)
-
-第三方依赖及其许可证见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
+核心项目由 [DeepSeek AI](https://deepseek.com) 开发，这个仓库在它的基础上加入独立桌面封装。代码使用 [MIT License](LICENSE)，第三方依赖说明见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
