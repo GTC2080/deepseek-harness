@@ -1,0 +1,106 @@
+name: Desktop Windows
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/desktop-windows.yml'
+      - 'apps/web/**'
+      - 'desktop/**'
+      - 'packages/**'
+      - 'scripts/build-desktop.ts'
+      - 'scripts/build-desktop-sidecar.ts'
+      - 'src-tauri/**'
+      - 'vendor/**'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - 'pnpm-workspace.yaml'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  DSH_TELEMETRY_DISABLED: '1'
+  PRIMARY_NODE_VERSION: '24'
+
+jobs:
+  build:
+    name: windows desktop / native build
+    runs-on: windows-2025
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Enable Developer Mode (symlink support)
+        shell: pwsh
+        run: >-
+          reg add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock"
+          /t REG_DWORD /f /v "AllowDevelopmentWithoutDevLicense" /d "1"
+
+      - uses: pnpm/action-setup@v4
+        with:
+          dest: ${{ runner.temp }}/setup-pnpm
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.PRIMARY_NODE_VERSION }}
+
+      - name: Install (immutable)
+        shell: pwsh
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify Windows desktop behavior
+        shell: pwsh
+        run: >-
+          pnpm exec vitest run
+          packages/client/runtime/tests/sessions-service.client.spec.ts
+          packages/client/runtime/tests/workspaces-service.client.spec.ts
+          packages/session-query/session-log-export/tests/controller.client.spec.ts
+          packages/session-query/session-log-export/tests/dialog.client.spec.tsx
+          packages/host/directory-picker-native/tests/native-picker.spec.ts
+          packages/host/directory-picker-native/tests/service.spec.ts
+          packages/host/directory-picker-native/tests/win32-dialog-bindings.spec.ts
+          packages/host/directory-picker-native/tests/win32-dialog-logic.spec.ts
+          packages/host/directory-picker-native/tests/win32-dialog.spec.ts
+          packages/host/directory-picker-auto/tests/resolve.spec.ts
+          packages/host/directory-picker-auto/tests/loader-composition.spec.ts
+
+      - name: Verify the native shell
+        shell: pwsh
+        run: |
+          $env:TAURI_CONFIG = '{"bundle":{"externalBin":[]}}'
+          cargo test --release --manifest-path src-tauri/Cargo.toml
+          Remove-Item Env:TAURI_CONFIG
+
+      - name: Build Windows installers
+        shell: pwsh
+        run: pnpm run desktop:build
+
+      - name: Record installer checksums
+        shell: pwsh
+        run: |
+          $bundle = Join-Path $PWD 'src-tauri/target/release/bundle'
+          $installers = @(Get-ChildItem $bundle -Recurse -File | Where-Object { $_.Extension -in '.exe', '.msi' })
+          if ($installers.Count -eq 0) { throw 'Tauri produced no Windows installer.' }
+          $checksums = $installers | Sort-Object FullName | ForEach-Object {
+            $hash = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+            "$hash  $($_.Name)"
+          }
+          $checksums | Set-Content (Join-Path $bundle 'SHA256SUMS.txt') -Encoding utf8NoBOM
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: deepseek-harness-desktop-windows-${{ github.sha }}
+          path: |
+            src-tauri/target/release/bundle/nsis/*.exe
+            src-tauri/target/release/bundle/msi/*.msi
+            src-tauri/target/release/bundle/SHA256SUMS.txt
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
