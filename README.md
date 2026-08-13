@@ -2,46 +2,46 @@
 
 English | [中文](README.zh.md)
 
-I made this desktop edition of [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) for one simple reason: I want to open it like a normal app, without asking every user to install Node.js, open a terminal, and remember startup commands.
+DeepSeek Harness Desktop packages [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) as a native application for Windows and macOS. End users can open the existing Web UI without installing Node.js or running startup commands in a terminal.
 
-This is an independent desktop package I maintain on top of the upstream project, not an official DeepSeek release. I keep the original harness and plugin system intact. The desktop layer only starts the local runtime, opens the interface, and shuts everything down with the window.
+This repository is an independently maintained desktop distribution, not an official DeepSeek release. The upstream harness, plugin graph, and Web UI remain the product core; the desktop layer is responsible for native startup, loopback runtime lifecycle, platform integration, and installer packaging.
 
-## Why I chose Tauri
+## Architecture
 
-I did not choose Electron because I do not want to bundle another full copy of Chromium for a local interface. This edition uses Tauri and the operating system's WebView. The runtime travels with the app and listens only on a random `127.0.0.1` port, so users do not need to install Node.js separately.
+The application uses Tauri and the operating system WebView instead of bundling Chromium. A packaged sidecar starts `dsh web` on an operating-system-selected random `127.0.0.1` port, the native shell validates the readiness endpoint, and the WebView loads the same interface used by the browser version. Closing the application also terminates the sidecar.
 
-"Lightweight" does not mean pretending the whole app can fit into a few megabytes. DeepSeek Harness and its runtime still take real space. My goal is simpler: avoid duplicated browser machinery and keep the desktop layer small, understandable, and easy to maintain.
+This design avoids a duplicated browser runtime while keeping desktop-specific code narrow enough to follow upstream development without maintaining a separate UI implementation.
 
-## Can I use it now?
+## Release status
 
-Yes, but I treat it as a preview rather than a finished public release.
+The current packages are preview builds:
 
-- I have tested the macOS Apple Silicon build end to end, including startup, page loading, window shutdown, and runtime cleanup.
-- The Windows x64 and ARM64 build paths are in place, but I have not yet verified the installer on a real Windows machine.
-- The packaged app contains the plugins shipped by this repository. Adding outside Node.js plugins still requires rebuilding the app.
-- The macOS package is not notarized, Windows code signing is not complete, and automatic updates are not included.
+- The macOS Apple Silicon DMG has been validated for startup, page loading, application shutdown, and runtime cleanup.
+- Windows x64 NSIS and MSI installers are available. Windows CI validates desktop behavior, the native shell, the packaged folder-dialog worker, and installer production.
+- The packaged application contains the plugins shipped by this repository. Adding out-of-tree Node.js plugins requires a new build.
+- The macOS package is not notarized, the Windows installers are not code-signed, and automatic updates are not included.
 
 ## Download
 
-The first macOS Apple Silicon preview package is available on [GitHub Releases](https://github.com/GTC2080/deepseek-harness-desktop/releases). I publish it as a pre-release because it is ad-hoc signed and not notarized. Check the attached SHA-256 before opening it.
+The current macOS Apple Silicon and Windows x64 preview packages are available on [GitHub Releases](https://github.com/GTC2080/deepseek-harness-desktop/releases). For Windows, use the NSIS `.exe` for a normal installation or the `.msi` when that format is required; only one installer is needed. Verify the attached SHA-256 checksums before installation.
 
 <a id="run"></a><a id="run-from-source"></a>
 
-## Build it yourself
+## Build from source
 
-If you need another platform or prefer to build locally, install Node.js, pnpm, and Rust, then build on the operating system you want to package:
+Building requires Node.js, pnpm, Rust, and the native toolchain for the target platform. Build macOS artifacts on macOS and Windows artifacts on Windows:
 
 ```sh
 pnpm install
 pnpm run desktop:build
 ```
 
-The detailed prerequisites and platform notes live in the [desktop build guide](desktop/README.md).
+Detailed prerequisites, runtime behavior, and platform notes are documented in the [desktop build guide](desktop/README.md).
 
-## What I want this project to stay
+## Maintenance model
 
-I do not want this to turn into another large framework. I want it to remain a practical desktop home for DeepSeek Harness: easy to open, local by default, honest about what is ready, and no heavier than it needs to be.
+The desktop implementation reuses the upstream Web UI and plugin system. Platform-specific maintenance stays limited to application lifecycle, desktop integrations, and packaging so upstream changes can be incorporated without duplicating product behavior.
 
 ## Upstream and license
 
-The core project is developed by [DeepSeek AI](https://deepseek.com). This repository adds the independent desktop packaging around it. The code is available under the [MIT License](LICENSE), with dependency notices in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+The core project is developed by [DeepSeek AI](https://deepseek.com). This repository provides independent desktop packaging around it. The code is available under the [MIT License](LICENSE), with dependency notices in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
