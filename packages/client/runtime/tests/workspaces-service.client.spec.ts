@@ -549,9 +549,9 @@ describe('startInitialSelection', () => {
     stop()
   })
 
-  it('opens recent real history during the first macOS cross-port migration', async () => {
+  it.each(['macos', 'windows'])('opens recent real history during the first %s cross-port migration', async (platform) => {
     let cookie = ''
-    vi.stubGlobal('__DSH_DESKTOP_PLATFORM__', 'macos')
+    vi.stubGlobal('__DSH_DESKTOP_PLATFORM__', platform)
     vi.stubGlobal('document', {
       get cookie() { return cookie },
       set cookie(value: string) {

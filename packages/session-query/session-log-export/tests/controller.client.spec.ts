@@ -167,7 +167,7 @@ describe('browser download helpers', () => {
     expect(anchor.download).toBe('archive.zip')
   })
 
-  it('waits for the macOS download bridge and returns its collision-safe filename', async () => {
+  it('waits for the desktop download bridge and returns its collision-safe filename', async () => {
     vi.stubGlobal('__DSH_DESKTOP_DOWNLOADS__', true)
     const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
     const result = downloadUrl('http://host/api/session.export?sessionId=a', 'archive.zip')

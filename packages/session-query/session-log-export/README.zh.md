@@ -15,7 +15,7 @@ Web Session 日志下载控制，使用 `dsh-host-apiproxy` 拥有的 Host 流�
 
 Host 下载端点会在 `readRaw` 前 flush 活动的根 Session，因此斜杠命令触发的 ZIP 会包含启动下载的 `command/run` 与 `command/done` 事件对。冷持久化 Session 不需要 flush。
 
-普通浏览器中的弹窗会报告准备中、开始下载或失败。在 macOS 桌面应用中，弹窗会等待原生 WebView 的 requested／finished 事件，再显示下载已完成，以及系统“下载”文件夹中实际使用的防重名文件名。关闭弹窗不会取消正在进行的下载；该操作随后完成时也不会重新打开弹窗。每个 Session 同时只允许一项下载，重复操作会共用该任务。
+普通浏览器中的弹窗会报告准备中、开始下载或失败。在 macOS 与 Windows 桌面应用中，弹窗会等待原生 WebView 的 requested／finished 事件，再显示下载已完成，以及系统“下载”文件夹中实际使用的防重名文件名。关闭弹窗不会取消正在进行的下载；该操作随后完成时也不会重新打开弹窗。每个 Session 同时只允许一项下载，重复操作会共用该任务。
 
 ## 组合
 

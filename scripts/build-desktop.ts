@@ -2,16 +2,14 @@
 import { spawn } from 'node:child_process'
 import { homedir } from 'node:os'
 import { resolve } from 'node:path'
+import { pnpmInvocation } from './pnpm-invocation.ts'
 
 const root = resolve(import.meta.dirname, '..')
 
-function pnpmBin(): string {
-  return process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm'
-}
-
 async function run(args: string[], env: NodeJS.ProcessEnv = process.env): Promise<void> {
+  const invocation = pnpmInvocation(args)
   await new Promise<void>((resolvePromise, reject) => {
-    const child = spawn(pnpmBin(), args, { cwd: root, env, stdio: 'inherit' })
+    const child = spawn(invocation.command, invocation.args, { cwd: root, env, stdio: 'inherit' })
     child.once('error', reject)
     child.once('exit', (code, signal) => {
       if (code === 0) {

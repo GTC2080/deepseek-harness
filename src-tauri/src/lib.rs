@@ -10,7 +10,7 @@ use std::{
     time::Duration,
 };
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 use tauri::{webview::DownloadEvent, WebviewWindowBuilder};
 use tauri::{Manager, Url, WebviewWindow, WindowEvent};
 use tauri_plugin_shell::{
@@ -23,8 +23,12 @@ const READY_PREFIX: &str = "dsh web: ";
 const STARTUP_TIMEOUT: Duration = Duration::from_secs(45);
 const MAX_DIAGNOSTIC_LINES: usize = 8;
 const MAX_DIAGNOSTIC_CHARS: usize = 500;
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 const DESKTOP_DOWNLOAD_EVENT: &str = "dsh:desktop-download";
+#[cfg(target_os = "macos")]
+const DESKTOP_PLATFORM: &str = "macos";
+#[cfg(target_os = "windows")]
+const DESKTOP_PLATFORM: &str = "windows";
 
 const PENDING: u8 = 0;
 const NAVIGATING: u8 = 1;
@@ -152,7 +156,7 @@ fn termination_message(payload: &TerminatedPayload, diagnostics: &VecDeque<Strin
     }
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 fn is_session_export_download(url: &Url) -> bool {
     url.scheme() == "http"
         && url.host_str() == Some("127.0.0.1")
@@ -160,7 +164,7 @@ fn is_session_export_download(url: &Url) -> bool {
         && url.path() == "/api/session.export"
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 fn desktop_download_event_script(detail: serde_json::Value) -> String {
     format!(
         "window.dispatchEvent(new CustomEvent({event}, {{ detail: {detail} }}));",
@@ -169,7 +173,15 @@ fn desktop_download_event_script(detail: serde_json::Value) -> String {
     )
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+fn desktop_initialization_script(platform: &str) -> String {
+    let platform = serde_json::to_string(platform).expect("desktop platform is serializable");
+    format!(
+        "window.__DSH_DESKTOP_PLATFORM__ = {platform}; window.__DSH_DESKTOP_DOWNLOADS__ = true;"
+    )
+}
+
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 fn create_main_window(app: &tauri::App) -> Result<WebviewWindow, Box<dyn Error>> {
     let config = app
         .config()
@@ -179,9 +191,7 @@ fn create_main_window(app: &tauri::App) -> Result<WebviewWindow, Box<dyn Error>>
         .find(|config| config.label == MAIN_WINDOW)
         .ok_or("the configured main window is missing")?;
     let window = WebviewWindowBuilder::from_config(app.handle(), config)?
-        .initialization_script(
-            "window.__DSH_DESKTOP_PLATFORM__ = 'macos'; window.__DSH_DESKTOP_DOWNLOADS__ = true;",
-        )
+        .initialization_script(desktop_initialization_script(DESKTOP_PLATFORM))
         .on_download(|webview, event| {
             match event {
                 DownloadEvent::Requested { url, destination }
@@ -221,9 +231,9 @@ fn create_main_window(app: &tauri::App) -> Result<WebviewWindow, Box<dyn Error>>
 }
 
 fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
     let window = create_main_window(app)?;
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     let window = app
         .get_webview_window(MAIN_WINDOW)
         .ok_or("the configured main window is missing")?;
@@ -388,8 +398,10 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::parse_ready_line;
-    #[cfg(target_os = "macos")]
-    use super::{desktop_download_event_script, is_session_export_download};
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    use super::{
+        desktop_download_event_script, desktop_initialization_script, is_session_export_download,
+    };
 
     #[test]
     fn accepts_only_the_loopback_runtime_origin() {
@@ -417,7 +429,7 @@ mod tests {
         }
     }
 
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
     #[test]
     fn bridges_only_loopback_session_exports_without_interpolating_javascript() {
         assert!(is_session_export_download(
@@ -440,5 +452,15 @@ mod tests {
         }));
         assert!(script.contains("archive\\\";window.injected=true;//.zip"));
         assert!(!script.contains("detail: {\"filename\":\"archive\";"));
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    #[test]
+    fn initializes_each_supported_desktop_platform_before_navigation() {
+        for platform in ["macos", "windows"] {
+            let script = desktop_initialization_script(platform);
+            assert!(script.contains(&format!("= \"{platform}\";")));
+            assert!(script.contains("window.__DSH_DESKTOP_DOWNLOADS__ = true;"));
+        }
     }
 }

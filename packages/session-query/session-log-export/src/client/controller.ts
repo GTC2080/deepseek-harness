@@ -42,7 +42,7 @@ export function sessionLogZipFilename(sessionId: SessionId): string {
 }
 
 /**
- * Hand a Host URL to the browser download manager or the macOS desktop completion bridge.
+ * Hand a Host URL to the browser download manager or the desktop completion bridge.
  * @param url - same-origin Host download URL.
  * @param filename - browser download filename.
  * @param signal - optional lifecycle cancellation for the desktop completion bridge.

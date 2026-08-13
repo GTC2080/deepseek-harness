@@ -1,0 +1,24 @@
+{
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "create": false,
+        "title": "DeepSeek Harness",
+        "url": "index.html",
+        "width": 1280,
+        "height": 800,
+        "minWidth": 800,
+        "minHeight": 600,
+        "center": true
+      }
+    ]
+  },
+  "bundle": {
+    "windows": {
+      "wix": {
+        "version": "0.1.0.7"
+      }
+    }
+  }
+}

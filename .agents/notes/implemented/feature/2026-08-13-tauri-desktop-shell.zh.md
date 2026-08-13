@@ -18,11 +18,13 @@ Node 后端也不能继续作为外部前置条件。实测生产部署在尚未
 
 `scripts/build-desktop-sidecar.ts` 会构建仓库、创建生产部署闭包、补回其中必需的 dependency 与 peer dependency 闭包、拒绝残留符号链接，并把该闭包编译为当前原生宿主的单个 Node SEA 可执行文件。Tauri 将其作为 `dsh-backend` external binary 打包。macOS 还会把 node-pty 的 `dsh-backend-spawn-helper` 放在旁边，因为 node-pty 根据 `process.execPath` 查找该可执行文件。
 
+Win32 原生文件夹选择器会把阻塞式 COM 会话保留在独立子进程中。普通 Node 部署会启动同级的 `lib/worker.cjs`；而在封闭式 SEA 内，`process.execPath` 指向 sidecar 本身，并不是通用 Node 解释器，因此选择器会用精确的私有参数 `--dsh-internal-win32-dialog-worker` 重新启动它。打包后的 CLI 只在存在 `process.pkg` 时接受这个模式，并导入随附的 worker 入口；worker 原有的非空标题与 IPC channel 校验仍是最终分发边界。
+
 生产部署步骤会在执行前保存、执行后恢复 pnpm 的根工作区状态。否则，pnpm 会把仅属于 staging 的 hoisted production 设置记到开发 checkout 上，并在下一个无交互命令中尝试重装 production 依赖。
 
 桌面壳先打开本地静态加载页，创建操作系统应用数据目录，再以该目录作为 `DSH_HOME` 和工作目录启动 `dsh web --host 127.0.0.1 --port 0`。它只接受精确的就绪前缀，以及紧随其后的无凭据 `http://127.0.0.1:<非零端口>/` origin，然后才让 WebView 导航。45 秒超时、进程过早退出、畸形就绪输出和导航失败都会作为可见启动错误保留下来。关闭主窗口或正常请求退出应用时，会先停止受管子进程，再结束桌面进程。
 
-在 macOS 上，由 Rust 创建配置好的 WebView，以便在首次导航前安装两类范围严格的原生到 Web 信号。平台标记让客户端在随机端口的 `localStorage` origin 与应用 WebView 的主机级 cookie 之间同步经校验、具有大小限制的当前 Session selection。首次迁移没有持久 selection 时，启动流程会从最近活跃 Workspace 中选择最近更新、未归档的非空白 Session，而不是创建一个临时空白 Session。下载标记则让现有 Session Log 控制器等待 WebView 下载完成并显示实际保存文件名；ZIP 流与目标位置仍由既有 Web 下载路径负责。
+在 macOS 与 Windows 上，由 Rust 创建配置好的 WebView，以便在首次导航前安装两类范围严格的原生到 Web 信号。平台标记让客户端在随机端口的 `localStorage` origin 与应用 WebView 的主机级 cookie 之间同步经校验、具有大小限制的当前 Session selection。首次迁移没有持久 selection 时，启动流程会从最近活跃 Workspace 中选择最近更新、未归档的非空白 Session，而不是创建一个临时空白 Session。下载标记则让现有 Session Log 控制器等待 WebView 下载完成并显示实际保存文件名；ZIP 流与目标位置仍由既有 Web 下载路径负责。
 
 封闭式运行时设置 `DSH_CLOSED_RUNTIME=1`。其根 Loader 与 bootstrap Include 从可执行文件的安装锚点解析随附 bare 插件，不会从可写 profile 目录解析。客户端模块 host 会先从 profile、再从 Loader 的安装锚点解析每个浏览器插件；因此，随附的浏览器 bundle 会始终留在 SEA 虚拟文件系统内，不依赖指向虚拟路径的操作系统链接。profile 的仅配置 HMR 实例仍监听用户 patch 文件，但其空模块根 watcher 会明确以真实 profile 目录为基础，而不是以可执行文件的虚拟 snapshot 路径为基础。
 
@@ -48,13 +50,15 @@ Agent 预设发现流程只读取目录名，再对每个候选项执行 `lstat`
 
 每次 sidecar 构建都会从隔离的 `DSH_HOME` 启动编译后的可执行文件，要求注入的启动图包含客户端运行时与 UI 布局包，成功下载两项已声明 bundle，调用 `agentPreset.list`，要求宿主返回非空 roster 且其中存在一个有效默认项，再关闭该进程。探针直接使用宿主返回的 roster，不会写死当前预设 id，因此上游加入新预设时不需要修改桌面端专用目录。即使可执行文件的首页仍返回 HTTP 200，只要它提供空客户端图，或者其打包文件系统无法发现随附预设，这项检查就会失败。
 
+同一构建还会通过真实 Node IPC channel，以打包后的对话框 worker 模式重新启动编译后的可执行文件。Windows 必须先在 `showing` 消息中返回正数原生线程 id，验证器才终止模态子进程；其他构建宿主则必须进入 worker，并返回结构化的不支持原生界面错误。这补上了原有缺口：源码测试在系统 Node 可执行文件下通过，但安装后的 SEA 会静默重新进入主 CLI，而不是执行 `worker.cjs`。
+
 端到端 sidecar 构建后，pnpm 根工作区状态仍表明完整开发安装与 isolated linker。后续普通 `pnpm run` 也能直接执行，不会触发依赖修复安装。
 
-Rust 单元测试接受预期就绪 origin，并拒绝 HTTPS、`localhost`、缺失端口、非根路径和凭据。macOS 专属测试证明，原生下载桥只接受 loopback Session 导出，并会在事件分发前对文件名进行 JSON 转义。客户端回归测试覆盖无效或超大 selection cookie、跨端口恢复、首次迁移回退、普通浏览器隔离、原生下载完成、防重名文件名和原生下载失败。连续两次使用不同 loopback 端口启动开发版，都会恢复同一个真实 Session，不再显示仅在启动时出现的 New Session 行。
+Rust 单元测试接受预期就绪 origin，并拒绝 HTTPS、`localhost`、缺失端口、非根路径和凭据。桌面端测试证明，两种受支持的平台标记都会在导航前注入，且原生下载桥只接受 loopback Session 导出，并会在事件分发前对文件名进行 JSON 转义。客户端回归测试覆盖无效或超大 selection cookie、macOS 与 Windows 跨端口恢复、首次迁移回退、普通浏览器隔离、原生下载完成、防重名文件名和原生下载失败。连续两次使用不同 loopback 端口启动开发版，都会恢复同一个真实 Session，不再显示仅在启动时出现的 New Session 行。
 
 生产 macOS arm64 应用与 DMG 均成功构建，严格 deep 代码签名验证通过。通过 macOS LaunchServices 启动已打包应用会在 loopback 上启动内置 sidecar；关闭原生窗口或请求退出应用时，两个进程都会退出并释放端口。在本次构建快照中，应用 bundle 约为 235 MB，压缩 DMG 约为 67 MB；sidecar 约为 225 MB，占安装体积的主要部分。
 
-Windows 源码映射与 bundle 配置已经存在，但无法在 macOS 上完成可执行验证。发布 Windows 安装程序前仍必须进行 Windows 原生构建。
+Windows 2025 原生 runner 会同时构建 x64 NSIS 与 MSI 安装程序。其源码态 COM smoke 与打包态 worker IPC 握手分别覆盖两条不同启动路径；安装后手动验证仍是确认可见选择器能在目标用户桌面打开并返回所选工作区的最后一步。
 
 ## 考虑过的替代方案
 

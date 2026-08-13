@@ -30,8 +30,8 @@ import { createSnapshotStore } from '../contract/store.ts'
 import type { SessionFace } from '../contract/session.ts'
 import type { AgentContext, ISessions } from '../contract/sessions.ts'
 import {
-  mirrorMacDesktopSessionSelection,
-  restoreMacDesktopSessionSelection,
+  mirrorDesktopSessionSelection,
+  restoreDesktopSessionSelection,
 } from '../desktop-session-selection.ts'
 import { createScope, scopeOf as scopeTagOf } from '../agents/scope.ts'
 import type { ConversationRuntime } from './conversation-assembler.ts'
@@ -285,13 +285,13 @@ export class SessionRuntime implements ISessions {
     remote: SessionRemotes,
     conversationRuntime?: ConversationRuntime,
   ) {
-    restoreMacDesktopSessionSelection()
+    restoreDesktopSessionSelection()
     this.selection = createSnapshotStore<SessionSelection>(
       {},
       { persist: { name: 'dsh.sessions.current' } })
     rootCtx.effect(
-      () => mirrorMacDesktopSessionSelection(this.selection),
-      'sessions: macOS desktop selection persistence',
+      () => mirrorDesktopSessionSelection(this.selection),
+      'sessions: desktop selection persistence',
     )
     const restored = this.selection.getSnapshot()
     const conversationEvents = rootCtx.get('conversationEvents')
