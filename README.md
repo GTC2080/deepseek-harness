@@ -23,7 +23,7 @@ The current stable release includes:
 
 ## Download
 
-The current macOS Apple Silicon and Windows x64 packages are available on [GitHub Releases](https://github.com/GTC2080/deepseek-harness-desktop/releases). For Windows, use the NSIS `.exe` for a normal installation or the `.msi` when that format is required; only one installer is needed. Verify the attached SHA-256 checksums before installation.
+The current macOS Apple Silicon and Windows x64 packages are available on [GitHub Releases](https://github.com/GTC2080/deepseek-harness/releases). For Windows, use the NSIS `.exe` for a normal installation or the `.msi` when that format is required; only one installer is needed. Verify the attached SHA-256 checksums before installation.
 
 <a id="run"></a><a id="run-from-source"></a>
 

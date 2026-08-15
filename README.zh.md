@@ -23,7 +23,7 @@ DeepSeek Harness Desktop 将 [DeepSeek Harness](https://github.com/deepseek-ai/d
 
 ## 下载
 
-当前 macOS Apple Silicon 和 Windows x64 安装包可从 [GitHub Releases](https://github.com/GTC2080/deepseek-harness-desktop/releases) 下载。Windows 普通安装建议使用 NSIS `.exe`，需要 MSI 格式时使用 `.msi`；两者选择一个即可。安装前请核对 Release 中提供的 SHA-256。
+当前 macOS Apple Silicon 和 Windows x64 安装包可从 [GitHub Releases](https://github.com/GTC2080/deepseek-harness/releases) 下载。Windows 普通安装建议使用 NSIS `.exe`，需要 MSI 格式时使用 `.msi`；两者选择一个即可。安装前请核对 Release 中提供的 SHA-256。
 
 <a id="run"></a><a id="run-from-source"></a>
 
